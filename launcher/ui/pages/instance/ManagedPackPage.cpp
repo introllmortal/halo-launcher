@@ -85,6 +85,8 @@ ManagedPackPage* ManagedPackPage::createPage(BaseInstance* inst, QString type, Q
         return new ModrinthManagedPackPage(inst, nullptr, parent);
     if (type == "flame" && (APPLICATION->capabilities() & Application::SupportsFlame))
         return new FlameManagedPackPage(inst, nullptr, parent);
+    if (type == "halo" || type == "github" || type == "custom" || (inst && inst->isManagedPack()))
+        return new HaloManagedPackPage(inst, nullptr, parent);
 
     return new GenericManagedPackPage(inst, nullptr, parent);
 }
@@ -173,6 +175,8 @@ QString ManagedPackPage::displayName() const
         return {};
     if (type == "flame")
         type = "CurseForge";
+    if (type == "halo")
+        return "Halo";
     return type.replace(0, 1, type[0].toUpper());
 }
 
@@ -534,6 +538,167 @@ void ManagedPackPage::updatePack(const QUrl& url, QString versionID, QString ver
     // Run our task then handle the result
     auto did_succeed = runUpdateTask(extracted);
     onUpdateTaskCompleted(did_succeed);
+}
+
+// HALO
+HaloManagedPackPage::HaloManagedPackPage(BaseInstance* inst, InstanceWindow* instance_window, QWidget* parent)
+    : ManagedPackPage(inst, instance_window, parent)
+{
+    Q_ASSERT(inst->isManagedPack());
+    connect(ui->versionsComboBox, &QComboBox::currentIndexChanged, this, &HaloManagedPackPage::suggestVersion);
+    connect(ui->updateButton, &QPushButton::clicked, this, &HaloManagedPackPage::update);
+    connect(ui->updateFromFileButton, &QPushButton::clicked, this, &HaloManagedPackPage::updateFromFile);
+}
+
+QString HaloManagedPackPage::url() const
+{
+    auto customURL = m_inst->settings()->get("ManagedPackURL").toString().trimmed();
+    if (!customURL.isEmpty())
+        return customURL;
+    return "https://github.com/introllmortal/mindice-modpack";
+}
+
+QIcon HaloManagedPackPage::icon() const
+{
+    return APPLICATION->getThemedIcon("checkupdate");
+}
+
+void HaloManagedPackPage::parseManagedPack()
+{
+    qDebug() << "Parsing Halo pack";
+
+    if (m_loaded) {
+        return;
+    }
+
+    if (m_fetch_job && m_fetch_job->isRunning()) {
+        m_fetch_job->abort();
+    }
+
+    m_versions.clear();
+
+    QString manifestUrl = m_inst->settings()->get("ManagedPackURL").toString().trimmed();
+    if (manifestUrl.isEmpty()) {
+        manifestUrl = "https://raw.githubusercontent.com/introllmortal/mindice-modpack/main/updates.json";
+    }
+
+    auto netJob = makeShared<NetJob>("HaloPack::Versions", APPLICATION->network());
+    auto [action, response] = Net::ApiDownload::makeByteArray(QUrl(manifestUrl));
+    netJob->addNetAction(action);
+
+    connect(netJob.get(), &NetJob::succeeded, this, [this, response]() {
+        QJsonParseError parse_error{};
+        QJsonDocument doc = QJsonDocument::fromJson(*response, &parse_error);
+        if (parse_error.error != QJsonParseError::NoError) {
+            qWarning() << "Error parsing Halo pack versions JSON:" << parse_error.errorString();
+            setFailState();
+            return;
+        }
+
+        QJsonArray arr;
+        if (doc.isArray()) {
+            arr = doc.array();
+        } else if (doc.isObject()) {
+            if (doc.object().contains("versions")) {
+                arr = doc.object()["versions"].toArray();
+            } else {
+                arr.append(doc.object());
+            }
+        }
+
+        m_versions.clear();
+        for (const auto& val : arr) {
+            auto obj = val.toObject();
+            PackVersion pv;
+            pv.version = obj.contains("version") ? obj["version"].toString() : obj["tag_name"].toString();
+            pv.name = obj.contains("name") ? obj["name"].toString() : pv.version;
+            pv.changelog = obj.contains("changelog") ? obj["changelog"].toString() : obj["body"].toString();
+
+            if (obj.contains("url")) {
+                pv.downloadUrl = QUrl(obj["url"].toString());
+            } else if (obj.contains("download_url")) {
+                pv.downloadUrl = QUrl(obj["download_url"].toString());
+            } else if (obj.contains("assets")) {
+                auto assets = obj["assets"].toArray();
+                for (const auto& a : assets) {
+                    auto aObj = a.toObject();
+                    auto aName = aObj["name"].toString();
+                    if (aName.endsWith(".mrpack", Qt::CaseInsensitive) || aName.endsWith(".zip", Qt::CaseInsensitive)) {
+                        pv.downloadUrl = QUrl(aObj["browser_download_url"].toString());
+                        break;
+                    }
+                }
+            }
+
+            if (!pv.version.isEmpty() && pv.downloadUrl.isValid()) {
+                m_versions.append(pv);
+            }
+        }
+
+        if (m_versions.isEmpty()) {
+            setFailState();
+            return;
+        }
+
+        ui->versionsComboBox->blockSignals(true);
+        ui->versionsComboBox->clear();
+        ui->versionsComboBox->blockSignals(false);
+
+        for (int i = 0; i < m_versions.size(); ++i) {
+            const auto& version = m_versions[i];
+            QString name = version.name;
+            if (version.version == m_inst->getManagedPackVersionName()) {
+                name = tr("%1 (Current)").arg(name);
+            }
+            ui->versionsComboBox->addItem(name, i);
+        }
+
+        suggestVersion();
+        m_loaded = true;
+    });
+
+    connect(netJob.get(), &NetJob::failed, this, [this](const QString&) {
+        setFailState();
+    });
+    connect(netJob.get(), &NetJob::aborted, this, [this]() {
+        setFailState();
+    });
+
+    ui->changelogTextBrowser->setText(tr("Fetching changelogs..."));
+    m_fetch_job = netJob;
+    m_fetch_job->start();
+}
+
+void HaloManagedPackPage::suggestVersion()
+{
+    auto idx = ui->versionsComboBox->currentData().toInt();
+    if (m_versions.isEmpty() || idx < 0 || idx >= m_versions.size()) {
+        setFailState();
+        return;
+    }
+    const auto& version = m_versions.at(idx);
+    ui->changelogTextBrowser->setHtml(StringUtils::htmlListPatch(markdownToHTML(version.changelog.toUtf8())));
+    ManagedPackPage::suggestVersion();
+}
+
+void HaloManagedPackPage::update()
+{
+    auto idx = ui->versionsComboBox->currentData().toInt();
+    if (m_versions.isEmpty() || idx < 0 || idx >= m_versions.size()) {
+        setFailState();
+        return;
+    }
+    const auto& version = m_versions.at(idx);
+    updatePack(version.downloadUrl, version.version, version.version);
+}
+
+void HaloManagedPackPage::updateFromFile()
+{
+    auto output = QFileDialog::getOpenFileUrl(this, tr("Choose update file"), QDir::homePath(), tr("Modpack") + " (*.mrpack *.zip)");
+    if (output.isEmpty())
+        return;
+
+    updatePack(output);
 }
 
 #include "ManagedPackPage.moc"

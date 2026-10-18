@@ -186,7 +186,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
 
         ui->instanceToolBar->setVisibilityState(QByteArray::fromBase64(instanceToolbarSetting->get().toString().toUtf8()));
 
-        ui->instanceToolBar->addContextMenuAction(ui->newsToolBar->toggleViewAction());
+        if (!BuildConfig.NEWS_RSS_URL.isEmpty()) {
+            ui->instanceToolBar->addContextMenuAction(ui->newsToolBar->toggleViewAction());
+        }
         ui->instanceToolBar->addContextMenuAction(ui->instanceToolBar->toggleViewAction());
         ui->instanceToolBar->addContextMenuAction(ui->actionToggleStatusBar);
         ui->instanceToolBar->addContextMenuAction(ui->actionLockToolbars);
@@ -247,7 +249,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
 
     // add the toolbar toggles to the view menu
     ui->viewMenu->addAction(ui->instanceToolBar->toggleViewAction());
-    ui->viewMenu->addAction(ui->newsToolBar->toggleViewAction());
+    if (!BuildConfig.NEWS_RSS_URL.isEmpty()) {
+        ui->viewMenu->addAction(ui->newsToolBar->toggleViewAction());
+    }
 
     updateThemeMenu();
     updateMainToolBar();
@@ -292,6 +296,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
     } else {
         ui->newsToolBar->setVisible(false);
         ui->newsToolBar->hide();
+        ui->actionMoreNews->setVisible(false);
     }
 
     // Create the instance list widget
@@ -1467,6 +1472,9 @@ void MainWindow::on_actionOpenWiki_triggered()
 
 void MainWindow::on_actionMoreNews_triggered()
 {
+    if (!m_newsChecker) {
+        return;
+    }
     auto entries = m_newsChecker->getNewsEntries();
     NewsDialog news_dialog(entries, this);
     news_dialog.exec();
@@ -1474,6 +1482,9 @@ void MainWindow::on_actionMoreNews_triggered()
 
 void MainWindow::newsButtonClicked()
 {
+    if (!m_newsChecker) {
+        return;
+    }
     auto entries = m_newsChecker->getNewsEntries();
     NewsDialog news_dialog(entries, this);
     news_dialog.toggleArticleList();

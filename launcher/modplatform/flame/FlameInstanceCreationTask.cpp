@@ -476,7 +476,15 @@ std::unique_ptr<MinecraftInstance> FlameCreationTask::createInstance()
         setAbortable(false);
         auto inst = m_instance.value();
 
+        auto origType = inst->getManagedPackType();
+        auto origUrl = inst->settings()->get("ManagedPackURL").toString();
         inst->copyManagedPack(*instance);
+        if (origType == "halo") {
+            inst->settings()->set("ManagedPackType", "halo");
+            if (!origUrl.isEmpty()) {
+                inst->settings()->set("ManagedPackURL", origUrl);
+            }
+        }
     }
 
     if (did_succeed) {

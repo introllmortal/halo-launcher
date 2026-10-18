@@ -160,3 +160,34 @@ class FlameManagedPackPage final : public ManagedPackPage {
     ModPlatform::IndexedPack m_pack;
     FlameAPI m_api;
 };
+
+class HaloManagedPackPage final : public ManagedPackPage {
+    Q_OBJECT
+
+   public:
+    HaloManagedPackPage(BaseInstance* inst, InstanceWindow* instance_window, QWidget* parent = nullptr);
+    ~HaloManagedPackPage() override = default;
+
+    void parseManagedPack() override;
+    QString url() const override;
+    QString displayName() const override { return "Halo"; }
+    QIcon icon() const override;
+    QString helpPage() const override { return {}; }
+
+   public slots:
+    void suggestVersion() override;
+
+    void update() override;
+    void updateFromFile() override;
+
+   private:
+    struct PackVersion {
+        QString version;
+        QString name;
+        QString changelog;
+        QUrl downloadUrl;
+    };
+
+    Task::Ptr m_fetch_job = nullptr;
+    QVector<PackVersion> m_versions;
+};
