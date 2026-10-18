@@ -100,6 +100,9 @@ void removeLeadingZeros(QString& s)
 
 void Version::parse()
 {
+    if (m_string.startsWith('v', Qt::CaseInsensitive) && m_string.length() > 1 && m_string.at(1).isDigit()) {
+        m_string.remove(0, 1);
+    }
     auto len = m_string.size();
     for (int i = 0; i < len;) {
         Section cur(Section::Type::Textual);
