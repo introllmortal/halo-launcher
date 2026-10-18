@@ -276,7 +276,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
     }
 
     // Add the news label to the news toolbar.
-    {
+    if (!BuildConfig.NEWS_RSS_URL.isEmpty()) {
         m_newsChecker.reset(new NewsChecker(APPLICATION->network(), BuildConfig.NEWS_RSS_URL));
         newsLabel = new QToolButton();
         newsLabel->setIcon(QIcon::fromTheme("news"));
@@ -289,6 +289,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
         connect(m_newsChecker.get(), &NewsChecker::newsLoaded, this, &MainWindow::updateNewsLabel);
         connect(APPLICATION, &Application::shouldReloadNews, m_newsChecker.get(), &NewsChecker::reloadNews);
         updateNewsLabel();
+    } else {
+        ui->newsToolBar->setVisible(false);
+        ui->newsToolBar->hide();
     }
 
     // Create the instance list widget
@@ -808,6 +811,9 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* ev)
 
 void MainWindow::updateNewsLabel()
 {
+    if (!m_newsChecker) {
+        return;
+    }
     if (m_newsChecker->isLoadingNews()) {
         newsLabel->setText(tr("Loading news..."));
         newsLabel->setEnabled(false);

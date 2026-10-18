@@ -175,8 +175,8 @@ endif()
 ##################################### Set Application options #####################################
 
 ######## Set URLs ########
-set(Launcher_NEWS_RSS_URL "https://pineconemc.ru/feed/feed.xml" CACHE STRING "URL to fetch Prism Launcher's news RSS feed from.")
-set(Launcher_NEWS_OPEN_URL "https://discord.gg/5kcBCvnbTp" CACHE STRING "URL that gets opened when the user clicks 'More News'")
+set(Launcher_NEWS_RSS_URL "" CACHE STRING "URL to fetch Prism Launcher's news RSS feed from.")
+set(Launcher_NEWS_OPEN_URL "" CACHE STRING "URL that gets opened when the user clicks 'More News'")
 set(Launcher_WIKI_URL "https://prismlauncher.org/wiki/" CACHE STRING "URL that gets opened when the user clicks 'Launcher Help'")
 set(Launcher_HELP_URL "https://prismlauncher.org/wiki/help-pages/%1" CACHE STRING "URL (with arg %1 to be substituted with page-id) that gets opened when the user requests help in a dialog window")
 set(Launcher_LOGIN_CALLBACK_URL "https://pineconemc.ru/successful-login" CACHE STRING "URL that gets opened when the user successfully logins.")
@@ -217,7 +217,7 @@ set(Launcher_TRANSLATION_FILES_URL "https://i18n.prismlauncher.org/" CACHE STRIN
 #set(Launcher_MATRIX_URL "https://prismlauncher.org/matrix" CACHE STRING "URL to the Matrix Space")
 
 # Discord URL
-set(Launcher_DISCORD_URL "https://discord.gg/5kcBCvnbTp" CACHE STRING "URL for the Discord guild.")
+#set(Launcher_DISCORD_URL "https://discord.gg/5kcBCvnbTp" CACHE STRING "URL for the Discord guild.")
 
 # Subreddit URL
 #set(Launcher_SUBREDDIT_URL "https://prismlauncher.org/reddit" CACHE STRING "URL for the subreddit.")
