@@ -562,7 +562,7 @@ QString HaloManagedPackPage::url() const
         }
         return customURL;
     }
-    return "https://github.com/introllmortal/mindice-modpack";
+    return {};
 }
 
 QIcon HaloManagedPackPage::icon() const
@@ -586,7 +586,9 @@ void HaloManagedPackPage::parseManagedPack()
 
     QString manifestUrl = m_inst->settings()->get("ManagedPackURL").toString().trimmed();
     if (manifestUrl.isEmpty()) {
-        manifestUrl = "https://raw.githubusercontent.com/introllmortal/mindice-modpack/main/updates.json";
+        qWarning() << "No ManagedPackURL configured for pack";
+        setFailState();
+        return;
     }
 
     auto netJob = makeShared<NetJob>("HaloPack::Versions", APPLICATION->network());
