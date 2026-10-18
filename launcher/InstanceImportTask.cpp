@@ -360,6 +360,19 @@ void InstanceImportTask::processMultiMC()
 
         installIcon(instance.instanceRoot(), m_instIcon);
     }
+
+    if (!m_extra_info.isEmpty()) {
+        auto original_instance_id_it = m_extra_info.constFind("original_instance_id");
+        if (original_instance_id_it != m_extra_info.constEnd()) {
+            setOverride(true, original_instance_id_it.value());
+        }
+        auto pack_version_id_it = m_extra_info.constFind("pack_version_id");
+        if (pack_version_id_it != m_extra_info.constEnd()) {
+            instance.settings()->set("ManagedPackVersionID", pack_version_id_it.value());
+            instance.settings()->set("ManagedPackVersionName", pack_version_id_it.value());
+        }
+    }
+
     emitSucceeded();
 }
 
