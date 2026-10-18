@@ -42,7 +42,9 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QMimeData>
+#include <QRegularExpression>
 #include <QSet>
 #include <QStack>
 #include <QTimer>
@@ -1024,6 +1026,237 @@ QString InstanceList::getStagedInstancePath()
     return result;
 }
 
+namespace {
+QString findModsFolder(const QString& root)
+{
+    QStringList candidates = {
+        FS::PathCombine(root, ".minecraft/mods"),
+        FS::PathCombine(root, "minecraft/mods"),
+        FS::PathCombine(root, "mods")
+    };
+    for (const auto& candidate : candidates) {
+        if (QDir(candidate).exists()) {
+            return candidate;
+        }
+    }
+    return QString();
+}
+
+QString findManifestFile(const QString& root)
+{
+    QStringList candidates = {
+        FS::PathCombine(root, "manifest_mods.json"),
+        FS::PathCombine(root, ".minecraft/manifest_mods.json"),
+        FS::PathCombine(root, "pack_manifest.json"),
+        FS::PathCombine(root, ".minecraft/pack_manifest.json")
+    };
+    for (const auto& candidate : candidates) {
+        if (QFileInfo::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return QString();
+}
+
+QSet<QString> readModManifest(const QString& manifestPath)
+{
+    QSet<QString> mods;
+    QFile file(manifestPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return mods;
+    }
+    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    if (doc.isArray()) {
+        for (const auto& val : doc.array()) {
+            if (val.isObject()) {
+                auto obj = val.toObject();
+                QString name = obj.contains("Name") ? obj["Name"].toString() : obj["name"].toString();
+                if (!name.isEmpty()) {
+                    mods.insert(name);
+                }
+            } else if (val.isString()) {
+                mods.insert(val.toString());
+            }
+        }
+    } else if (doc.isObject()) {
+        auto obj = doc.object();
+        if (obj.contains("files") && obj["files"].isArray()) {
+            for (const auto& val : obj["files"].toArray()) {
+                if (val.isObject()) {
+                    auto o = val.toObject();
+                    QString name = o.contains("Name") ? o["Name"].toString() : o["name"].toString();
+                    if (!name.isEmpty()) mods.insert(name);
+                } else if (val.isString()) {
+                    mods.insert(val.toString());
+                }
+            }
+        } else {
+            for (auto it = obj.begin(); it != obj.end(); ++it) {
+                if (it.key().endsWith(".jar", Qt::CaseInsensitive)) {
+                    mods.insert(it.key());
+                }
+            }
+        }
+    }
+    return mods;
+}
+
+QString extractModStem(const QString& filename)
+{
+    QString name = filename;
+    if (name.endsWith(".jar", Qt::CaseInsensitive)) {
+        name.chop(4);
+    }
+    if (name.endsWith(".disabled", Qt::CaseInsensitive)) {
+        name.chop(9);
+        if (name.endsWith(".jar", Qt::CaseInsensitive)) {
+            name.chop(4);
+        }
+    }
+    while (name.startsWith('[')) {
+        int idx = name.indexOf(']');
+        if (idx != -1) {
+            name = name.mid(idx + 1).trimmed();
+        } else {
+            break;
+        }
+    }
+    static QRegularExpression re(R"([-_]v?\d+[\.\d]*)");
+    auto match = re.match(name);
+    if (match.hasMatch() && match.capturedStart() > 0) {
+        return name.left(match.capturedStart()).toLower().trimmed();
+    }
+    int hyphenIdx = name.indexOf('-');
+    if (hyphenIdx > 2) {
+        return name.left(hyphenIdx).toLower().trimmed();
+    }
+    return name.toLower().trimmed();
+}
+
+void cleanupOutdatedPackMods(const QString& destination, const QString& staging)
+{
+    QString oldModsDir = findModsFolder(destination);
+    QString newModsDir = findModsFolder(staging);
+
+    if (oldModsDir.isEmpty() || newModsDir.isEmpty()) {
+        return;
+    }
+
+    QString oldManifestPath = findManifestFile(destination);
+    QString newManifestPath = findManifestFile(staging);
+
+    QSet<QString> oldManifestMods;
+    if (!oldManifestPath.isEmpty()) {
+        oldManifestMods = readModManifest(oldManifestPath);
+    }
+
+    QSet<QString> newModFiles;
+    if (!newManifestPath.isEmpty()) {
+        newModFiles = readModManifest(newManifestPath);
+    }
+    QDir newDir(newModsDir);
+    QStringList stagedJars = newDir.entryList({ "*.jar" }, QDir::Files);
+    for (const auto& jar : stagedJars) {
+        newModFiles.insert(jar);
+    }
+
+    if (newModFiles.isEmpty()) {
+        return;
+    }
+
+    int removedCount = 0;
+
+    // Strategy 1: Deterministic deletion via manifest comparison
+    if (!oldManifestMods.isEmpty()) {
+        qDebug() << "Updating instance with pack manifest. Old pack had" << oldManifestMods.size() << "mods, new pack has" << newModFiles.size() << "mods.";
+        for (const auto& oldMod : oldManifestMods) {
+            if (!newModFiles.contains(oldMod)) {
+                QString pathToRemove = FS::PathCombine(oldModsDir, oldMod);
+                if (QFile::exists(pathToRemove)) {
+                    qDebug() << "Removing outdated/deleted pack mod:" << oldMod;
+                    FS::deletePath(pathToRemove);
+                    removedCount++;
+                }
+                QString disabledToRemove = FS::PathCombine(oldModsDir, oldMod + ".disabled");
+                if (QFile::exists(disabledToRemove)) {
+                    qDebug() << "Removing outdated/deleted disabled pack mod:" << oldMod + ".disabled";
+                    FS::deletePath(disabledToRemove);
+                    removedCount++;
+                }
+            }
+        }
+    } else {
+        // Strategy 2: Heuristic stem matching for unindexed packs/zips
+        qDebug() << "No previous pack manifest found. Applying stem matching for mod upgrades...";
+        QDir oldDir(oldModsDir);
+        QStringList existingOldMods = oldDir.entryList({ "*.jar", "*.jar.disabled" }, QDir::Files);
+
+        QMap<QString, QString> incomingStems;
+        for (const auto& newJar : stagedJars) {
+            QString stem = extractModStem(newJar);
+            if (!stem.isEmpty()) {
+                incomingStems[stem] = newJar;
+            }
+        }
+
+        for (const auto& oldFile : existingOldMods) {
+            QString stem = extractModStem(oldFile);
+            if (!stem.isEmpty() && incomingStems.contains(stem)) {
+                QString incomingName = incomingStems[stem];
+                QString oldPureName = oldFile.endsWith(".disabled", Qt::CaseInsensitive) ? oldFile.left(oldFile.length() - 9) : oldFile;
+                if (oldPureName.compare(incomingName, Qt::CaseInsensitive) != 0) {
+                    QString pathToRemove = FS::PathCombine(oldModsDir, oldFile);
+                    qDebug() << "Replacing older mod version:" << oldFile << "->" << incomingName;
+                    FS::deletePath(pathToRemove);
+                    removedCount++;
+                }
+            }
+        }
+    }
+
+    if (removedCount > 0) {
+        qDebug() << "Cleaned up" << removedCount << "outdated/removed mod files during pack update.";
+    }
+}
+
+void ensureManifestUpdated(const QString& destination, const QString& staging)
+{
+    QString stagedManifest = findManifestFile(staging);
+    if (!stagedManifest.isEmpty()) {
+        QString destManifest = FS::PathCombine(destination, "manifest_mods.json");
+        QFile::remove(destManifest);
+        QFile::copy(stagedManifest, destManifest);
+        return;
+    }
+
+    QString newModsDir = findModsFolder(staging);
+    if (newModsDir.isEmpty()) {
+        return;
+    }
+    QDir dir(newModsDir);
+    auto fileList = dir.entryInfoList({ "*.jar" }, QDir::Files, QDir::Name);
+    if (fileList.isEmpty()) {
+        return;
+    }
+
+    QJsonArray array;
+    for (const auto& fi : fileList) {
+        QJsonObject obj;
+        obj["Name"] = fi.fileName();
+        obj["Length"] = fi.size();
+        array.append(obj);
+    }
+
+    QJsonDocument doc(array);
+    QString destManifest = FS::PathCombine(destination, "manifest_mods.json");
+    QFile out(destManifest);
+    if (out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        out.write(doc.toJson(QJsonDocument::Indented));
+        out.close();
+    }
+}
+} // namespace
+
 bool InstanceList::commitStagedInstance(const QString& path,
                                         const InstanceName& instanceName,
                                         QString groupName,
@@ -1049,10 +1282,12 @@ bool InstanceList::commitStagedInstance(const QString& path,
         QString destination = FS::PathCombine(m_instDir, instID);
 
         if (should_override) {
+            cleanupOutdatedPackMods(destination, path);
             if (!FS::overrideFolder(destination, path)) {
                 qWarning() << "Failed to override" << path << "to" << destination;
                 return false;
             }
+            ensureManifestUpdated(destination, path);
         } else {
             if (!FS::move(path, destination)) {
                 qWarning() << "Failed to move" << path << "to" << destination;
