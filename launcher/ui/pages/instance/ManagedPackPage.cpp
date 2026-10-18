@@ -567,7 +567,7 @@ QString HaloManagedPackPage::url() const
 
 QIcon HaloManagedPackPage::icon() const
 {
-    return APPLICATION->getThemedIcon("checkupdate");
+    return QIcon::fromTheme("checkupdate");
 }
 
 void HaloManagedPackPage::parseManagedPack()
