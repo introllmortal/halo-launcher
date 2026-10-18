@@ -196,13 +196,12 @@ QString MinecraftAccount::displayName() const
     const auto typeFriendlyString = [](const AccountType type) {
         switch (type) {
             case AccountType::MSA:
-                return QStringLiteral("MSA");
+                return QObject::tr("Лицензия");
             case AccountType::Ely:
                 return QStringLiteral("Ely.by");
             case AccountType::Offline:
-                return QStringLiteral("Offline");
+                return QObject::tr("Офлайн");
         }
-        Q_ASSERT_X(false, "MinecraftAccount::displayName", "No type friendly string mapping for current account type");
         return QString();
     };
     const QString nameWithType = QString("%1 [%2]").arg(profileName(), typeFriendlyString(data.type));

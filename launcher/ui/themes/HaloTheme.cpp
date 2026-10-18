@@ -28,8 +28,8 @@ QPalette HaloTheme::colorScheme()
     haloPalette.setColor(QPalette::ButtonText, QColor(241, 245, 249));
     haloPalette.setColor(QPalette::BrightText, QColor(244, 63, 94));
     haloPalette.setColor(QPalette::Link, QColor(56, 189, 248));
-    // Signature Halo Electric Cyan Accent
-    haloPalette.setColor(QPalette::Highlight, QColor(14, 165, 233));
+    // Halo Refined Deep Sky Accent
+    haloPalette.setColor(QPalette::Highlight, QColor(2, 132, 199));
     haloPalette.setColor(QPalette::HighlightedText, Qt::white);
     haloPalette.setColor(QPalette::PlaceholderText, QColor(100, 116, 139));
     return fadeInactive(haloPalette, fadeAmount(), fadeColor());
@@ -52,10 +52,34 @@ bool HaloTheme::hasStyleSheet()
 
 QString HaloTheme::appStyleSheet()
 {
-    return "QToolTip { color: #f8fafc; background-color: #0f172a; border: 1px solid #0ea5e9; border-radius: 4px; padding: 4px; }";
+    return R"(
+        QToolTip {
+            color: #f8fafc;
+            background-color: #0f172a;
+            border: 1px solid #0284c7;
+            border-radius: 4px;
+            padding: 4px;
+        }
+        QAbstractItemView {
+            selection-background-color: transparent;
+        }
+        QAbstractItemView::item:selected {
+            background-color: rgba(2, 132, 199, 0.28);
+            color: #ffffff;
+            border: 1px solid rgba(2, 132, 199, 0.65);
+            border-radius: 4px;
+        }
+        QAbstractItemView::item:selected:hover {
+            background-color: rgba(2, 132, 199, 0.38);
+        }
+        QAbstractItemView::item:hover:!selected {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+    )";
 }
 
 QString HaloTheme::tooltip()
 {
-    return QObject::tr("Default modern dark theme with electric cyan accents");
+    return QObject::tr("Default modern dark theme with refined sky accents");
 }

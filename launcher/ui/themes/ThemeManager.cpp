@@ -273,7 +273,11 @@ void ThemeManager::setApplicationTheme(const QString& name, bool initial)
 void ThemeManager::applyCurrentlySelectedTheme(bool initial)
 {
     auto settings = APPLICATION->settings();
-    setIconTheme(settings->get("IconTheme").toString());
+    auto iconTheme = settings->get("IconTheme").toString();
+    if (iconTheme.isEmpty()) {
+        iconTheme = "flat_white";
+    }
+    setIconTheme(iconTheme);
     themeDebugLog() << "<> Icon theme set.";
     auto applicationTheme = settings->get("ApplicationTheme").toString();
     if (applicationTheme == "") {

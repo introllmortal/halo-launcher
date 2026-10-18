@@ -646,7 +646,7 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
             new INISettingsObject({ BuildConfig.LAUNCHER_CONFIGFILE, "prismlauncher.cfg", "polymc.cfg", "multimc.cfg" }, this));
 
         // Theming
-        m_settings->registerSetting("IconTheme", QString());
+        m_settings->registerSetting("IconTheme", QString("flat_white"));
         m_settings->registerSetting("ApplicationTheme", QString("halo"));
         m_settings->registerSetting("BackgroundCat", QString("kitteh"));
         m_settings->registerSetting("CatButtonVisible", true);
@@ -1253,7 +1253,7 @@ bool Application::createSetupWizard()
     if (wizardRequired) {
         // set default theme after going into theme wizard
         if (!validIcons)
-            settings()->set("IconTheme", QString("pe_colored"));
+            settings()->set("IconTheme", QString("flat_white"));
         if (!validWidgets) {
             settings()->set("ApplicationTheme", QStringLiteral("halo"));
         }

@@ -72,36 +72,40 @@ ListViewDelegate::ListViewDelegate(QObject* parent) : QStyledItemDelegate(parent
 
 void drawSelectionRect(QPainter* painter, const QStyleOptionViewItem& option, const QRect& rect)
 {
-    if ((option.state & QStyle::State_Selected))
-        painter->fillRect(rect, option.palette.brush(QPalette::Highlight));
-    else {
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    if ((option.state & QStyle::State_Selected)) {
+        // Refined, subtle translucent accent instead of blinding solid neon
+        QColor highlightBg = option.palette.color(QPalette::Highlight);
+        highlightBg.setAlpha(55); // ~22% soft tint
+        painter->setBrush(highlightBg);
+
+        QColor borderCol = option.palette.color(QPalette::Highlight);
+        borderCol.setAlpha(170);
+        painter->setPen(QPen(borderCol, 1.2));
+        painter->drawRoundedRect(rect.adjusted(1, 1, -1, -1), 5.0, 5.0);
+    } else {
         QColor backgroundColor = option.palette.color(QPalette::Window);
-        backgroundColor.setAlpha(160);
-        painter->fillRect(rect, QBrush(backgroundColor));
+        backgroundColor.setAlpha(120);
+        painter->setBrush(backgroundColor);
+        painter->setPen(Qt::NoPen);
+        painter->drawRoundedRect(rect, 5.0, 5.0);
     }
+    painter->restore();
 }
 
 void drawFocusRect(QPainter* painter, const QStyleOptionViewItem& option, const QRect& rect)
 {
     if (!(option.state & QStyle::State_HasFocus))
         return;
-    QStyleOptionFocusRect opt;
-    opt.direction = option.direction;
-    opt.fontMetrics = option.fontMetrics;
-    opt.palette = option.palette;
-    opt.rect = rect;
-    // opt.state           = option.state | QStyle::State_KeyboardFocusChange |
-    // QStyle::State_Item;
-    auto col = option.state & QStyle::State_Selected ? QPalette::Highlight : QPalette::Base;
-    opt.backgroundColor = option.palette.color(col);
-    // Apparently some widget styles expect this hint to not be set
-    painter->setRenderHint(QPainter::Antialiasing, false);
-
-    QStyle* style = option.widget ? option.widget->style() : QApplication::style();
-
-    style->drawPrimitive(QStyle::PE_FrameFocusRect, &opt, painter, option.widget);
-
-    painter->setRenderHint(QPainter::Antialiasing);
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    QColor focusCol = option.palette.color(QPalette::Highlight);
+    focusCol.setAlpha(130);
+    painter->setPen(QPen(focusCol, 1.0, Qt::DashLine));
+    painter->setBrush(Qt::NoBrush);
+    painter->drawRoundedRect(rect.adjusted(1, 1, -1, -1), 5.0, 5.0);
+    painter->restore();
 }
 
 // TODO this can be made a lot prettier
