@@ -170,7 +170,7 @@ class HaloManagedPackPage final : public ManagedPackPage {
 
     void parseManagedPack() override;
     QString url() const override;
-    QString displayName() const override { return "Halo"; }
+    QString displayName() const override { return "GitHub"; }
     QIcon icon() const override;
     QString helpPage() const override { return {}; }
 

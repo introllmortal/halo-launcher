@@ -175,8 +175,8 @@ QString ManagedPackPage::displayName() const
         return {};
     if (type == "flame")
         type = "CurseForge";
-    if (type == "halo")
-        return "Halo";
+    if (type == "halo" || type == "github")
+        return "GitHub";
     return type.replace(0, 1, type[0].toUpper());
 }
 
@@ -553,8 +553,15 @@ HaloManagedPackPage::HaloManagedPackPage(BaseInstance* inst, InstanceWindow* ins
 QString HaloManagedPackPage::url() const
 {
     auto customURL = m_inst->settings()->get("ManagedPackURL").toString().trimmed();
-    if (!customURL.isEmpty())
+    if (!customURL.isEmpty()) {
+        if (customURL.contains("raw.githubusercontent.com/")) {
+            auto parts = customURL.split('/');
+            if (parts.size() >= 5) {
+                return QString("https://github.com/%1/%2").arg(parts[3], parts[4]);
+            }
+        }
         return customURL;
+    }
     return "https://github.com/introllmortal/mindice-modpack";
 }
 
