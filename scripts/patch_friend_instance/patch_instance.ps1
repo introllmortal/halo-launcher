@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # Halo Launcher & Create Clockwork Empire Instance Patch
 # Привязка локальной сборки к репозиторию обновлений GitHub
 # ==============================================================================
@@ -48,17 +48,17 @@ function Check-RunningProcesses {
 }
 
 function Find-InstanceDirectory {
-    $possibleRoots = @(
+    # Проверяем строго локальное окружение, куда игрок распаковал файлы:
+    # 1. Текущая папка ($PSScriptRoot) - корень инстанса рядом с instance.cfg
+    # 2. Папка на уровень выше (если закинули внутрь .minecraft)
+    # 3. Папка на два уровня выше (если закинули внутрь .minecraft/mods)
+    $localCandidates = @(
         $PSScriptRoot,
         (Join-Path $PSScriptRoot ".."),
-        (Join-Path $PSScriptRoot "..\.."),
-        (Join-Path $env:APPDATA "PrismLauncher\instances\Create_Clockwork_Empire"),
-        (Join-Path $env:APPDATA "PrismLauncher\instances\Create_Clockwork_Empire_Prism"),
-        (Join-Path $env:APPDATA "HaloLauncher\instances\Create_Clockwork_Empire"),
-        (Join-Path $env:APPDATA "HaloLauncher\instances\Create_Clockwork_Empire_Prism")
+        (Join-Path $PSScriptRoot "..\..")
     )
 
-    foreach ($path in $possibleRoots) {
+    foreach ($path in $localCandidates) {
         if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path $path)) {
             $resolved = (Resolve-Path $path).Path
             $cfgFile = Join-Path $resolved "instance.cfg"
@@ -66,14 +66,6 @@ function Find-InstanceDirectory {
                 return $resolved
             }
         }
-    }
-
-    # If still not found, ask user
-    Write-Host "[-] Не удалось автоматически обнаружить папку инстанса (файл instance.cfg)." -ForegroundColor Yellow
-    Write-Host "    Пожалуйста, укажите путь к папке вашей сборки вручную." -ForegroundColor Gray
-    $userPath = Read-Host "Путь к папке инстанса"
-    if (-not [string]::IsNullOrWhiteSpace($userPath) -and (Test-Path (Join-Path $userPath "instance.cfg"))) {
-        return (Resolve-Path $userPath).Path
     }
 
     return $null
@@ -278,18 +270,28 @@ try {
 Write-Header
 Check-RunningProcesses
 
-Write-Host "[*] Поиск папки сборки Create Clockwork Empire..." -ForegroundColor Cyan
+Write-Host "[*] Проверка папки инстанса..." -ForegroundColor Cyan
 $instanceDir = Find-InstanceDirectory
 
 if (-not $instanceDir) {
     Write-Host ""
-    Write-Host "[-] Ошибка: Папка инстанса не найдена. Поместите скрипт в папку сборки и запустите снова." -ForegroundColor Red
+    Write-Host "==============================================================" -ForegroundColor Red
+    Write-Host " [-] ОШИБКА: Патчер запущен вне папки инстанса!" -ForegroundColor Red
+    Write-Host "==============================================================" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Скрипт должен быть запущен непосредственно внутри сборки." -ForegroundColor Yellow
+    Write-Host "Пожалуйста:" -ForegroundColor White
+    Write-Host "  1. Скопируйте файлы патча в папку вашей сборки" -ForegroundColor Gray
+    Write-Host "     (туда, где лежит файл instance.cfg или папка .minecraft)." -ForegroundColor Gray
+    Write-Host "  2. Запустите patch_instance.bat прямо из папки инстанса." -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "==============================================================" -ForegroundColor Red
     Write-Host ""
     Read-Host "Нажмите Enter для выхода"
     exit 1
 }
 
-Write-Host "[+] Обнаружен инстанс: $instanceDir" -ForegroundColor Green
+Write-Host "[+] Папка инстанса подтверждена: $instanceDir" -ForegroundColor Green
 Write-Host ""
 
 Install-CustomIcon -InstanceDir $instanceDir
