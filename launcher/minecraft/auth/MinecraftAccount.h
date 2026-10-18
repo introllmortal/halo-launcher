@@ -142,13 +142,13 @@ class MinecraftAccount : public QObject, public Usable {
     {
         switch (data.type) {
             case AccountType::MSA: {
-                return QString("%1 [%2]").arg(profileName(), QObject::tr("Лицензия"));
+                return QString("%1 [%2]").arg(profileName(), QObject::tr("Microsoft"));
             } break;
             case AccountType::Ely: {
                 return QString("%1 [Ely.by]").arg(profileName());
             } break;
             case AccountType::Offline: {
-                return QString("%1 [%2]").arg(profileName(), QObject::tr("Офлайн"));
+                return QString("%1 [%2]").arg(profileName(), QObject::tr("Offline"));
             } break;
             default: {
                 return profileName();

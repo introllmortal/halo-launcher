@@ -196,11 +196,11 @@ QString MinecraftAccount::displayName() const
     const auto typeFriendlyString = [](const AccountType type) {
         switch (type) {
             case AccountType::MSA:
-                return QObject::tr("Лицензия");
+                return QObject::tr("Microsoft");
             case AccountType::Ely:
                 return QStringLiteral("Ely.by");
             case AccountType::Offline:
-                return QObject::tr("Офлайн");
+                return QObject::tr("Offline");
         }
         return QString();
     };
