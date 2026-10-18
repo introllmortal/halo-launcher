@@ -647,7 +647,7 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
 
         // Theming
         m_settings->registerSetting("IconTheme", QString());
-        m_settings->registerSetting("ApplicationTheme", QString());
+        m_settings->registerSetting("ApplicationTheme", QString("halo"));
         m_settings->registerSetting("BackgroundCat", QString("kitteh"));
         m_settings->registerSetting("CatButtonVisible", true);
 
@@ -1255,14 +1255,7 @@ bool Application::createSetupWizard()
         if (!validIcons)
             settings()->set("IconTheme", QString("pe_colored"));
         if (!validWidgets) {
-#if defined(Q_OS_WIN32) && QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
-            const QString style =
-                QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark ? QStringLiteral("dark") : QStringLiteral("bright");
-#else
-            const QString style = QStringLiteral("system");
-#endif
-
-            settings()->set("ApplicationTheme", style);
+            settings()->set("ApplicationTheme", QStringLiteral("halo"));
         }
 
         m_themeManager->applyCurrentlySelectedTheme(true);

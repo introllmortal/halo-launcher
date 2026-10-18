@@ -87,7 +87,28 @@ QString useQTForArch()
 
 int defaultMaxJvmMem()
 {
-    return std::min(static_cast<int>(HardwareInfo::totalRamMiB() / 1.5), 6144);
+    const auto totalRam = HardwareInfo::totalRamMiB();
+    if (totalRam == 0) {
+        return 4096;
+    }
+
+    // Adaptive RAM allocation based on player's physical hardware:
+    if (totalRam <= 4096) {
+        // <= 4 GB system: allocate 2048 MB to Minecraft, leave ~2 GB for OS
+        return 2048;
+    } else if (totalRam <= 8192) {
+        // 6-8 GB system: allocate 4096-5120 MB, reserve at least 3 GB for Windows/background
+        return static_cast<int>(std::max<uint64_t>(3072, totalRam - 3072));
+    } else if (totalRam <= 16384) {
+        // 12-16 GB system: allocate 8192 MB (sweet spot for heavy 400+ modpacks)
+        return 8192;
+    } else if (totalRam <= 32768) {
+        // 24-32 GB system: allocate 10240 MB (ideal for heavy shaders and large draw distance)
+        return 10240;
+    } else {
+        // 48-64+ GB system: cap at 14336 MB to prevent GC pause spikes on huge heaps
+        return 14336;
+    }
 }
 
 QString getSupportedJavaArchitecture()
