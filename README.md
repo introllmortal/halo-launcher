@@ -16,49 +16,49 @@
 
 ---
 
-## 🚀 О проекте / About
+## 🚀 About
 
-**Halo Launcher** — это легковесный, производительный и чистый лаунчер Minecraft, созданный на базе Prism Launcher. 
+**Halo Launcher** is a lightweight, high-performance, and clean Minecraft launcher built on top of Prism Launcher.
 
-Лаунчер полностью очищен от рекламы, сторонних баннеров, донатов и лишних новостных лент. Он идеально подходит как для одиночной игры, так и для распространения среди друзей и игровых сообществ благодаря встроенной поддержке пользовательских сборок и дифференциальных обновлений.
-
----
-
-## ✨ Ключевые возможности / Features
-
-* **Универсальная поддержка аккаунтов:**
-  * **Ely.by:** Официальная авторизация OAuth2, автоматическая загрузка скинов и плащей на серверах.
-  * **Microsoft (MSA):** Официальная лицензия Minecraft через защищенный Microsoft OAuth2.
-  * **Офлайн-режим:** Быстрый запуск игры без подключения к интернету.
-* **Встроенный менеджер обновлений (Halo Pack):**
-  * Нативная вкладка обновления в настройках каждого инстанса: выбор версий, чейнджлог и обновление в один клик.
-  * Дифференциальная загрузка: скачиваются только измененные или добавленные моды/конфиги.
-  * **100% сохранность пользовательских данных:** миры (`saves/`), скриншоты и настройки управления (`options.txt`) всегда остаются нетронутыми.
-* **Чистый и быстрый интерфейс:**
-  * Без рекламы, партнерских виджетов и стороннего визуального шума.
-  * Быстрый отклик интерфейса на базе Qt 6.
-* **Поддержка всех актуальных модлоадеров:**
-  * NeoForge, Fabric, Forge, Quilt.
-  * Изолированные профили Java, гибкое распределение оперативной памяти и аргументов JVM.
+It has been stripped of third-party advertisements, sponsor banners, external donation popups, and intrusive news feeds. The launcher is designed for both standalone play and easy distribution among friends and gaming communities, featuring built-in support for custom modpacks and differential updates.
 
 ---
 
-## 📦 Сборка из исходников / Building
+## ✨ Features
 
-Проект собирается с использованием **CMake** и **Qt 6**:
+* **Universal Account Management:**
+  * **Ely.by:** Secure OAuth2 authorization with automatic skin and cape rendering across multiplayer servers.
+  * **Microsoft (MSA):** Official Minecraft license authentication via Microsoft OAuth2.
+  * **Offline Mode:** Instant offline game launch without internet connectivity.
+* **Integrated Modpack Updates (GitHub & Custom Providers):**
+  * Dedicated update tab in each instance's settings: version selection, formatted changelogs, and one-click updates.
+  * Differential downloading: only updated or added mods and configs are downloaded, saving bandwidth and time.
+  * **Data Integrity:** player singleplayer worlds (`saves/`), screenshots, and key bindings (`options.txt`) are never overwritten.
+* **Clean & Modern User Interface:**
+  * Zero server ads, sponsor widgets, or promotional links.
+  * Snappy, responsive interface powered by Qt 6.
+* **Full Mod Loader Support:**
+  * NeoForge, Fabric, Forge, and Quilt.
+  * Isolated Java runtimes, fine-grained JVM memory allocation, and custom launch arguments.
 
-### Требования:
+---
+
+## 📦 Building from Source
+
+The project builds using **CMake** and **Qt 6**:
+
+### Requirements:
 * Windows 10/11 x64
-* Visual Studio 2022 (MSVC v143) с поддержкой C++20
+* Visual Studio 2022 (MSVC v143) with C++20 support
 * CMake 3.22+
 * Qt 6.6+ (Core, Gui, Widgets, Network, Concurrent, Svg, Xml)
 
-Автоматическая компиляция релизных установщиков настроена в [GitHub Actions](https://github.com/introllmortal/halo-launcher/actions) через запуск workflow `build.yml`.
+Automated builds for release installers are configured in [GitHub Actions](https://github.com/introllmortal/halo-launcher/actions) via the `build.yml` workflow.
 
 ---
 
-## 📜 Лицензия / License
+## 📜 License
 
-* Кодовая база распространяется на условиях свободной лицензии **GNU General Public License v3.0 (GPL-3.0-only)**.
-* Исходный проект: форк [Prism Launcher](https://github.com/PrismLauncher/PrismLauncher) и [PineconeMC](https://github.com/ElyPrismLauncher/Launcher).
-* Halo Launcher является независимым проектом и не связан с Mojang Studios, Microsoft или Prism Launcher.
+* The codebase is licensed under the **GNU General Public License v3.0 (GPL-3.0-only)**.
+* Upstream projects: based on [Prism Launcher](https://github.com/PrismLauncher/PrismLauncher) and [PineconeMC](https://github.com/ElyPrismLauncher/Launcher).
+* Halo Launcher is an independent project and is not affiliated with or endorsed by Mojang Studios, Microsoft, or Prism Launcher.

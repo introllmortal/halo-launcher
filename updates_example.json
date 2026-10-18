@@ -1,8 +1,8 @@
 [
   {
     "version": "1.0.0",
-    "name": "Create Clockwork Empire - 1.0.0",
-    "changelog": "## Релиз сборки Create Clockwork Empire v1.0.0\n\n- Базовая стабильная версия сборки для игры на сервере.\n- 465 оптимизированных модов NeoForge 1.21.1.\n- Полная сюжетная ветка FTB Quests и интеграция Create: Clockwork.",
-    "url": "https://github.com/introllmortal/mindice-modpack/releases/download/v1.0.0/Create_Clockwork_Empire-1.0.0.mrpack"
+    "name": "Modpack Name - 1.0.0",
+    "changelog": "## Version 1.0.0 Release\n\n- Initial stable release.\n- Updated performance configurations and questlines.\n- Optimized mod list and compatibility fixes.",
+    "url": "https://github.com/author/modpack/releases/download/v1.0.0/modpack-1.0.0.mrpack"
   }
 ]
