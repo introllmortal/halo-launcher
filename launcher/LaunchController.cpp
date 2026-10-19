@@ -501,6 +501,14 @@ void LaunchController::onFailed(QString reason)
             logLines = rawLog.split('\n');
         }
 
+        if (logLines.isEmpty()) {
+            QFile latestLogFile(FS::PathCombine(m_instance->gameRoot(), "logs", "latest.log"));
+            if (latestLogFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                rawLog = QString::fromUtf8(latestLogFile.readAll());
+                logLines = rawLog.split('\n');
+            }
+        }
+
         QString latestCrashReport;
         QString crashReportsDir = FS::PathCombine(m_instance->gameRoot(), "crash-reports");
         QDir dir(crashReportsDir);
@@ -508,7 +516,7 @@ void LaunchController::onFailed(QString reason)
             auto reports = dir.entryInfoList({ "crash-*.txt" }, QDir::Files, QDir::Time);
             if (!reports.isEmpty()) {
                 const auto& latestInfo = reports.first();
-                if (latestInfo.lastModified().toMSecsSinceEpoch() >= m_instance->lastLaunch() - 60000) {
+                if (m_instance->lastLaunch() <= 0 || latestInfo.lastModified().toMSecsSinceEpoch() >= m_instance->lastLaunch() - 60000) {
                     QFile file(latestInfo.absoluteFilePath());
                     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
                         latestCrashReport = QString::fromUtf8(file.readAll());

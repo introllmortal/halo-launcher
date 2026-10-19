@@ -34,6 +34,7 @@ void CrashAssistantDialog::setupUi()
 {
     setWindowTitle(tr("Halo Crash Assistant"));
     resize(620, 460);
+    setMinimumSize(560, 420);
 
     auto mainLayout = new QVBoxLayout(this);
     mainLayout->setSpacing(12);
