@@ -111,6 +111,7 @@ BaseInstance::BaseInstance(SettingsObject* globalSettings, std::unique_ptr<Setti
     m_settings->registerOverride(globalSettings->getSetting("ShowConsole"), consoleSetting);
     m_settings->registerOverride(globalSettings->getSetting("AutoCloseConsole"), consoleSetting);
     m_settings->registerOverride(globalSettings->getSetting("ShowConsoleOnError"), consoleSetting);
+    m_settings->registerOverride(globalSettings->getSetting("EnableCrashAssistant"), consoleSetting);
     m_settings->registerOverride(globalSettings->getSetting("LogPrePostOutput"), consoleSetting);
 
     m_settings->registerPassthrough(globalSettings->getSetting("ConsoleMaxLines"), nullptr);

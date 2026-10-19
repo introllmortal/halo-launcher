@@ -723,6 +723,7 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
         m_settings->registerSetting("ShowConsole", false);
         m_settings->registerSetting("AutoCloseConsole", false);
         m_settings->registerSetting("ShowConsoleOnError", true);
+        m_settings->registerSetting("EnableCrashAssistant", true);
         m_settings->registerSetting("LogPrePostOutput", true);
 
         // Window Size

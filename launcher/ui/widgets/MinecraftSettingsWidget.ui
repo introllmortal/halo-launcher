@@ -289,6 +289,13 @@
                 </property>
                </widget>
               </item>
+               <item>
+                <widget class="QCheckBox" name="enableCrashAssistantCheck">
+                 <property name="text">
+                  <string>When the game crashes, open Crash Assistant</string>
+                 </property>
+                </widget>
+               </item>
               <item>
                <widget class="QCheckBox" name="autoCloseConsoleCheck">
                 <property name="text">
@@ -918,6 +925,7 @@ It is most likely you will need to change the path - please refer to the mod's w
   <tabstop>consoleSettingsBox</tabstop>
   <tabstop>showConsoleCheck</tabstop>
   <tabstop>showConsoleErrorCheck</tabstop>
+  <tabstop>enableCrashAssistantCheck</tabstop>
   <tabstop>autoCloseConsoleCheck</tabstop>
 
   <!-- global data packs -->

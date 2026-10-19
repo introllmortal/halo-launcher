@@ -61,6 +61,13 @@
 #include "launch/steps/TextPrint.h"
 #include "tasks/Task.h"
 #include "ui/dialogs/ChooseOfflineNameDialog.h"
+#include "diagnostics/CrashAnalyzer.h"
+#include "ui/dialogs/CrashAssistantDialog.h"
+#include "launch/LogModel.h"
+#include "FileSystem.h"
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 
 LaunchController::LaunchController() = default;
 
@@ -485,6 +492,40 @@ void LaunchController::onFailed(QString reason)
     if (m_instance->settings()->get("ShowConsoleOnError").toBool()) {
         APPLICATION->showInstanceWindow(m_instance, "console");
     }
+
+    if (m_instance->hasCrashed() && m_instance->settings()->get("EnableCrashAssistant").toBool()) {
+        QString rawLog;
+        QStringList logLines;
+        if (m_launcher && m_launcher->getLogModel()) {
+            rawLog = m_launcher->getLogModel()->toPlainText();
+            logLines = rawLog.split('\n');
+        }
+
+        QString latestCrashReport;
+        QString crashReportsDir = FS::PathCombine(m_instance->gameRoot(), "crash-reports");
+        QDir dir(crashReportsDir);
+        if (dir.exists()) {
+            auto reports = dir.entryInfoList({ "crash-*.txt" }, QDir::Files, QDir::Time);
+            if (!reports.isEmpty()) {
+                const auto& latestInfo = reports.first();
+                if (latestInfo.lastModified().toMSecsSinceEpoch() >= m_instance->lastLaunch() - 60000) {
+                    QFile file(latestInfo.absoluteFilePath());
+                    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                        latestCrashReport = QString::fromUtf8(file.readAll());
+                    }
+                }
+            }
+        }
+
+        auto diagnosis = CrashAnalyzer::analyze(m_instance, logLines, latestCrashReport, -1);
+        auto* dlg = new CrashAssistantDialog(diagnosis, m_instance, rawLog, m_parentWidget);
+        dlg->setWindowFlags(Qt::Window);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->show();
+        dlg->raise();
+        dlg->activateWindow();
+    }
+
     emitFailed(std::move(reason));
 }
 

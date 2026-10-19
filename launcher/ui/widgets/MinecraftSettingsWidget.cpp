@@ -187,6 +187,7 @@ void MinecraftSettingsWidget::loadSettings()
     m_ui->showConsoleCheck->setChecked(settings->get("ShowConsole").toBool());
     m_ui->autoCloseConsoleCheck->setChecked(settings->get("AutoCloseConsole").toBool());
     m_ui->showConsoleErrorCheck->setChecked(settings->get("ShowConsoleOnError").toBool());
+    m_ui->enableCrashAssistantCheck->setChecked(settings->get("EnableCrashAssistant").toBool());
 
     if (m_javaSettings != nullptr)
         m_javaSettings->loadSettings();
@@ -345,10 +346,12 @@ void MinecraftSettingsWidget::saveSettings()
             settings->set("ShowConsole", m_ui->showConsoleCheck->isChecked());
             settings->set("AutoCloseConsole", m_ui->autoCloseConsoleCheck->isChecked());
             settings->set("ShowConsoleOnError", m_ui->showConsoleErrorCheck->isChecked());
+            settings->set("EnableCrashAssistant", m_ui->enableCrashAssistantCheck->isChecked());
         } else {
             settings->reset("ShowConsole");
             settings->reset("AutoCloseConsole");
             settings->reset("ShowConsoleOnError");
+            settings->reset("EnableCrashAssistant");
         }
 
         // Game Window

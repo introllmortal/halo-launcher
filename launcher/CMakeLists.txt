@@ -50,6 +50,10 @@ set(CORE_SOURCES
     InstanceImportTask.h
     InstanceImportTask.cpp
 
+    # Crash Diagnostics
+    diagnostics/CrashAnalyzer.h
+    diagnostics/CrashAnalyzer.cpp
+
     # Resource downloading task
     ResourceDownloadTask.h
     ResourceDownloadTask.cpp
@@ -1064,6 +1068,8 @@ SET(LAUNCHER_SOURCES
     # GUI - dialogs
     ui/dialogs/AboutDialog.cpp
     ui/dialogs/AboutDialog.h
+    ui/dialogs/CrashAssistantDialog.cpp
+    ui/dialogs/CrashAssistantDialog.h
     ui/dialogs/ProfileSelectDialog.cpp
     ui/dialogs/ProfileSelectDialog.h
     ui/dialogs/ProfileSetupDialog.cpp
