@@ -191,6 +191,14 @@ void CrashAssistantDialog::onApplyFix()
                 if (QFile::exists(optionsShaders)) {
                     QFile::remove(optionsShaders);
                 }
+                QString irisProps = FS::PathCombine(m_instance->gameRoot(), "config/iris.properties");
+                if (QFile::exists(irisProps)) {
+                    QFile::remove(irisProps);
+                }
+                QString oculusProps = FS::PathCombine(m_instance->gameRoot(), "config/oculus.properties");
+                if (QFile::exists(oculusProps)) {
+                    QFile::remove(oculusProps);
+                }
                 QMessageBox::information(this, tr("Shaders Disabled"),
                     tr("Active shaders have been reset to prevent graphics driver crashes."));
                 accept();
