@@ -149,14 +149,19 @@ DiagnosisResult CrashAnalyzer::detectJavaVersionMismatch(const QString& fullText
 DiagnosisResult CrashAnalyzer::detectDuplicateMods(const QString& fullText, BaseInstance* instance)
 {
     DiagnosisResult res;
-    static const QRegularExpression dupPattern(R"(Duplicate\s+mods?\s+found[^\n\r]*:?\s*([^\n\r]+)|Duplicate\s+mod\s+id\s+'([^']+)')", QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression dupPattern(R"(Duplicate\s+mods?\s+found[^\n\r]*:?\s*([^\n\r]+)|Duplicate\s+mod\s+id\s+'([^']+)'|Duplicate\s+versions\s+for\s+mod\s+ID\s+'([^']+)')", QRegularExpression::CaseInsensitiveOption);
     auto match = dupPattern.match(fullText);
 
     if (!match.hasMatch() && !fullText.contains("DuplicateModsFoundException", Qt::CaseInsensitive)) {
         return res;
     }
 
-    QString rawModInfo = match.hasMatch() ? (match.captured(1).isEmpty() ? match.captured(2) : match.captured(1)) : "";
+    QString rawModInfo;
+    if (match.hasMatch()) {
+        if (!match.captured(1).isEmpty()) rawModInfo = match.captured(1);
+        else if (!match.captured(2).isEmpty()) rawModInfo = match.captured(2);
+        else rawModInfo = match.captured(3);
+    }
     rawModInfo = rawModInfo.trimmed();
 
     QString modPath = findModPathByName(instance, rawModInfo);
@@ -185,7 +190,7 @@ DiagnosisResult CrashAnalyzer::detectDuplicateMods(const QString& fullText, Base
 DiagnosisResult CrashAnalyzer::detectMissingDependency(const QString& fullText, BaseInstance* instance)
 {
     DiagnosisResult res;
-    static const QRegularExpression depPattern(R"(requires\s+(?:version\s+[^\n\r]+of\s+)?mod\s+'([^']+)'|Mod\s+'([^']+)'[^\n\r]*requires\s+'([^']+)'|ModLoadingException:\s*Mod\s+(\S+)\s+requires\s+(\S+)|Missing\s+or\s+unsupported\s+mandatory\s+dependencies:\s*([^\n\r]+))", QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression depPattern(R"(requires\s+(?:version\s+[^\n\r]+of\s+)?mod\s+'([^']+)'|Mod\s+'([^']+)'[^\n\r]*requires\s+'([^']+)'|ModLoadingException:\s*Mod\s+(\S+)\s+requires\s+(\S+)|Could\s+not\s+find\s+required\s+mod:\s*'([^']+)'|Missing\s+or\s+unsupported\s+mandatory\s+dependencies:\s*([^\n\r]+))", QRegularExpression::CaseInsensitiveOption);
     auto match = depPattern.match(fullText);
 
     if (!match.hasMatch() && !fullText.contains("Missing mandatory dependencies", Qt::CaseInsensitive)) {
@@ -302,7 +307,7 @@ DiagnosisResult CrashAnalyzer::detectModConflict(const QString& fullText, const 
     auto match = suspectedPattern.match(fullText);
 
     // Check Mixin application errors
-    static const QRegularExpression mixinPattern(R"(Critical\s+injection\s+failure:\s*Callback\s*(\S+)\s+in\s+(\S+)|MixinApplyError:\s*Mixin\s+\[([^\]]+)\])", QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression mixinPattern(R"(Critical\s+injection\s+failure:\s*Callback\s*(\S+)\s+in\s+(\S+)|MixinApplyError:\s*Mixin\s+\[([^\]]+)\]|merged\s+from\s+(\S+\.mixins\.json))", QRegularExpression::CaseInsensitiveOption);
     auto mixinMatch = mixinPattern.match(fullText);
 
     QString modIdentifier;
@@ -313,7 +318,8 @@ DiagnosisResult CrashAnalyzer::detectModConflict(const QString& fullText, const 
         }
     }
     if (modIdentifier.isEmpty() && mixinMatch.hasMatch()) {
-        modIdentifier = mixinMatch.captured(3).isEmpty() ? mixinMatch.captured(2) : mixinMatch.captured(3);
+        if (!mixinMatch.captured(4).isEmpty()) modIdentifier = mixinMatch.captured(4);
+        else modIdentifier = mixinMatch.captured(3).isEmpty() ? mixinMatch.captured(2) : mixinMatch.captured(3);
     }
 
     if (modIdentifier.isEmpty()) {
@@ -392,6 +398,16 @@ QString CrashAnalyzer::findModPathByName(BaseInstance* instance, const QString& 
     if (!instance || nameOrModId.isEmpty()) return QString();
 
     QString cleanQuery = nameOrModId;
+    // If it's a mixin config reference like sodium.mixins.json:features.buffer...
+    int mixinIdx = cleanQuery.indexOf(".mixins.json", 0, Qt::CaseInsensitive);
+    if (mixinIdx > 0) {
+        cleanQuery = cleanQuery.left(mixinIdx).trimmed();
+    }
+    // If it has colon e.g. modid:Class
+    int colonIdx = cleanQuery.indexOf(':');
+    if (colonIdx > 0) {
+        cleanQuery = cleanQuery.left(colonIdx).trimmed();
+    }
     // Strip versions or parentheses like ModName (modid)
     int parenIdx = cleanQuery.indexOf('(');
     if (parenIdx > 0) {
