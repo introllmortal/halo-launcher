@@ -2,3 +2,6 @@ CMakeLists.txt
 launcher/LaunchController.cpp
 launcher/diagnostics/CrashAnalyzer.cpp
 launcher/ui/dialogs/skins/SkinManageDialog.cpp
+program_info/io.github.introllmortal.HaloLauncher.svg
+program_info/io.github.introllmortal.HaloLauncher.bigsur.svg
+launcher/resources/multimc/scalable/instances/halolauncher.svg

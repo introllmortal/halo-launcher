@@ -315,6 +315,7 @@
         <file>scalable/instances/fox_legacy.svg</file>
         <file>scalable/instances/bee_legacy.svg</file>
         <file>scalable/instances/pineconemc.svg</file>
+        <file>scalable/instances/halolauncher.svg</file>
 
         <!-- delete, tag, rename, shortcut, about, new, checkupdate and server LGPL3, Oxygen icons.-->
         <file>scalable/delete.svg</file>
