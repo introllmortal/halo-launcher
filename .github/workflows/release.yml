@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           submodules: "true"
-          path: "PineconeMC-source"
+          path: "HaloLauncher-source"
       - name: Download artifacts
         uses: actions/download-artifact@v8
       - name: Grab and store version
@@ -43,51 +43,51 @@ jobs:
           echo "VERSION=$tag_name" >> $GITHUB_ENV
       - name: Package artifacts properly
         run: |
-          mv ${{ github.workspace }}/PineconeMC-source PineconeMC-${{ env.VERSION }}
-          mv PineconeMC-Linux-Qt6-Portable*/PineconeMC-portable.tar.gz PineconeMC-Linux-Qt6-Portable-${{ env.VERSION }}.tar.gz
-          mv PineconeMC-Linux-aarch64-Qt6-Portable*/PineconeMC-portable.tar.gz PineconeMC-Linux-aarch64-Qt6-Portable-${{ env.VERSION }}.tar.gz
-          mv PineconeMC-*.AppImage/PineconeMC-*-x86_64.AppImage PineconeMC-Linux-x86_64.AppImage
-          mv PineconeMC-*.AppImage.zsync/PineconeMC-*-x86_64.AppImage.zsync PineconeMC-Linux-x86_64.AppImage.zsync
-          mv PineconeMC-*.AppImage/PineconeMC-*-aarch64.AppImage PineconeMC-Linux-aarch64.AppImage
-          mv PineconeMC-*.AppImage.zsync/PineconeMC-*-aarch64.AppImage.zsync PineconeMC-Linux-aarch64.AppImage.zsync
-          mv PineconeMC-macOS*/PineconeMC.zip PineconeMC-macOS-${{ env.VERSION }}.zip
-          mv PineconeMC-macOS*/PineconeMC.dmg PineconeMC-macOS-${{ env.VERSION }}.dmg
+          mv ${{ github.workspace }}/HaloLauncher-source HaloLauncher-${{ env.VERSION }}
+          mv HaloLauncher-Linux-Qt6-Portable*/HaloLauncher-portable.tar.gz HaloLauncher-Linux-Qt6-Portable-${{ env.VERSION }}.tar.gz
+          mv HaloLauncher-Linux-aarch64-Qt6-Portable*/HaloLauncher-portable.tar.gz HaloLauncher-Linux-aarch64-Qt6-Portable-${{ env.VERSION }}.tar.gz
+          mv HaloLauncher-*.AppImage/HaloLauncher-*-x86_64.AppImage HaloLauncher-Linux-x86_64.AppImage
+          mv HaloLauncher-*.AppImage.zsync/HaloLauncher-*-x86_64.AppImage.zsync HaloLauncher-Linux-x86_64.AppImage.zsync
+          mv HaloLauncher-*.AppImage/HaloLauncher-*-aarch64.AppImage HaloLauncher-Linux-aarch64.AppImage
+          mv HaloLauncher-*.AppImage.zsync/HaloLauncher-*-aarch64.AppImage.zsync HaloLauncher-Linux-aarch64.AppImage.zsync
+          mv HaloLauncher-macOS*/HaloLauncher.zip HaloLauncher-macOS-${{ env.VERSION }}.zip
+          mv HaloLauncher-macOS*/HaloLauncher.dmg HaloLauncher-macOS-${{ env.VERSION }}.dmg
 
-          tar --exclude='.git' -czf PineconeMC-${{ env.VERSION }}.tar.gz PineconeMC-${{ env.VERSION }}
+          tar --exclude='.git' -czf HaloLauncher-${{ env.VERSION }}.tar.gz HaloLauncher-${{ env.VERSION }}
 
-          for d in PineconeMC-Windows-MSVC*; do
+          for d in HaloLauncher-Windows-MSVC*; do
             cd "${d}" || continue
             LEGACY="$(echo -n ${d} | grep -o Legacy || true)"
             ARM64="$(echo -n ${d} | grep -o arm64 || true)"
             INST="$(echo -n ${d} | grep -o Setup || true)"
             PORT="$(echo -n ${d} | grep -o Portable || true)"
-            NAME="PineconeMC-Windows-MSVC"
+            NAME="HaloLauncher-Windows-MSVC"
             test -z "${LEGACY}" || NAME="${NAME}-Legacy"
             test -z "${ARM64}" || NAME="${NAME}-arm64"
             test -z "${PORT}" || NAME="${NAME}-Portable"
-            test -z "${INST}" || mv PineconeMC-*.exe ../${NAME}-Setup-${{ env.VERSION }}.exe
+            test -z "${INST}" || mv HaloLauncher-*.exe ../${NAME}-Setup-${{ env.VERSION }}.exe
             test -n "${INST}" || zip -r -9 "../${NAME}-${{ env.VERSION }}.zip" *
             cd ..
           done
 
-          for d in PineconeMC-Windows-MinGW-w64*; do
+          for d in HaloLauncher-Windows-MinGW-w64*; do
             cd "${d}" || continue
             INST="$(echo -n ${d} | grep -o Setup || true)"
             PORT="$(echo -n ${d} | grep -o Portable || true)"
-            NAME="PineconeMC-Windows-MinGW-w64"
+            NAME="HaloLauncher-Windows-MinGW-w64"
             test -z "${PORT}" || NAME="${NAME}-Portable"
-            test -z "${INST}" || mv PineconeMC-*.exe ../${NAME}-Setup-${{ env.VERSION }}.exe
+            test -z "${INST}" || mv HaloLauncher-*.exe ../${NAME}-Setup-${{ env.VERSION }}.exe
             test -n "${INST}" || zip -r -9 "../${NAME}-${{ env.VERSION }}.zip" *
             cd ..
           done
 
-          for d in PineconeMC-Windows-MinGW-arm64*; do
+          for d in HaloLauncher-Windows-MinGW-arm64*; do
             cd "${d}" || continue
             INST="$(echo -n ${d} | grep -o Setup || true)"
             PORT="$(echo -n ${d} | grep -o Portable || true)"
-            NAME="PineconeMC-Windows-MinGW-arm64"
+            NAME="HaloLauncher-Windows-MinGW-arm64"
             test -z "${PORT}" || NAME="${NAME}-Portable"
-            test -z "${INST}" || mv PineconeMC-*.exe ../${NAME}-Setup-${{ env.VERSION }}.exe
+            test -z "${INST}" || mv HaloLauncher-*.exe ../${NAME}-Setup-${{ env.VERSION }}.exe
             test -n "${INST}" || zip -r -9 "../${NAME}-${{ env.VERSION }}.zip" *
             cd ..
           done
@@ -98,29 +98,29 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ github.ref }}
-          name: PineconeMC ${{ env.VERSION }}
-          draft: true
+          name: Halo Launcher ${{ env.VERSION }}
+          draft: false
           prerelease: false
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
           files: |
-            PineconeMC-Linux-x86_64.AppImage
-            PineconeMC-Linux-x86_64.AppImage.zsync
-            PineconeMC-Linux-aarch64.AppImage
-            PineconeMC-Linux-aarch64.AppImage.zsync
-            PineconeMC-Linux-Qt6-Portable-${{ env.VERSION }}.tar.gz
-            PineconeMC-Linux-aarch64-Qt6-Portable-${{ env.VERSION }}.tar.gz
-            PineconeMC-Windows-MinGW-w64-${{ env.VERSION }}.zip
-            PineconeMC-Windows-MinGW-w64-Portable-${{ env.VERSION }}.zip
-            PineconeMC-Windows-MinGW-w64-Setup-${{ env.VERSION }}.exe
-            PineconeMC-Windows-MinGW-arm64-${{ env.VERSION }}.zip
-            PineconeMC-Windows-MinGW-arm64-Portable-${{ env.VERSION }}.zip
-            PineconeMC-Windows-MinGW-arm64-Setup-${{ env.VERSION }}.exe
-            PineconeMC-Windows-MSVC-arm64-${{ env.VERSION }}.zip
-            PineconeMC-Windows-MSVC-arm64-Portable-${{ env.VERSION }}.zip
-            PineconeMC-Windows-MSVC-arm64-Setup-${{ env.VERSION }}.exe
-            PineconeMC-Windows-MSVC-${{ env.VERSION }}.zip
-            PineconeMC-Windows-MSVC-Portable-${{ env.VERSION }}.zip
-            PineconeMC-Windows-MSVC-Setup-${{ env.VERSION }}.exe
-            PineconeMC-macOS-${{ env.VERSION }}.zip
-            PineconeMC-macOS-${{ env.VERSION }}.dmg
-            PineconeMC-${{ env.VERSION }}.tar.gz
+            HaloLauncher-Linux-x86_64.AppImage
+            HaloLauncher-Linux-x86_64.AppImage.zsync
+            HaloLauncher-Linux-aarch64.AppImage
+            HaloLauncher-Linux-aarch64.AppImage.zsync
+            HaloLauncher-Linux-Qt6-Portable-${{ env.VERSION }}.tar.gz
+            HaloLauncher-Linux-aarch64-Qt6-Portable-${{ env.VERSION }}.tar.gz
+            HaloLauncher-Windows-MinGW-w64-${{ env.VERSION }}.zip
+            HaloLauncher-Windows-MinGW-w64-Portable-${{ env.VERSION }}.zip
+            HaloLauncher-Windows-MinGW-w64-Setup-${{ env.VERSION }}.exe
+            HaloLauncher-Windows-MinGW-arm64-${{ env.VERSION }}.zip
+            HaloLauncher-Windows-MinGW-arm64-Portable-${{ env.VERSION }}.zip
+            HaloLauncher-Windows-MinGW-arm64-Setup-${{ env.VERSION }}.exe
+            HaloLauncher-Windows-MSVC-arm64-${{ env.VERSION }}.zip
+            HaloLauncher-Windows-MSVC-arm64-Portable-${{ env.VERSION }}.zip
+            HaloLauncher-Windows-MSVC-arm64-Setup-${{ env.VERSION }}.exe
+            HaloLauncher-Windows-MSVC-${{ env.VERSION }}.zip
+            HaloLauncher-Windows-MSVC-Portable-${{ env.VERSION }}.zip
+            HaloLauncher-Windows-MSVC-Setup-${{ env.VERSION }}.exe
+            HaloLauncher-macOS-${{ env.VERSION }}.zip
+            HaloLauncher-macOS-${{ env.VERSION }}.dmg
+            HaloLauncher-${{ env.VERSION }}.tar.gz
