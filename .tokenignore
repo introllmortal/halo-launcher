@@ -5,6 +5,7 @@ launcher/ui/dialogs/skins/SkinManageDialog.cpp
 program_info/io.github.introllmortal.HaloLauncher.svg
 program_info/io.github.introllmortal.HaloLauncher.bigsur.svg
 launcher/resources/multimc/scalable/instances/halolauncher.svg
+launcher/resources/multimc/scalable/launcher.svg
 launcher/Application.cpp
 launcher/ui/instanceview/InstanceDelegate.cpp
 launcher/ui/themes/ThemeManager.cpp
