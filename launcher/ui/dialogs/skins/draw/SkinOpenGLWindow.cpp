@@ -181,9 +181,9 @@ void SkinOpenGLWindow::initShaders()
 void SkinOpenGLWindow::resizeGL(int w, int h)
 {
     // Calculate aspect ratio
-    qreal aspect = qreal(w) / qreal(h ? h : 1);
+    float aspect = float(w) / float(h ? h : 1);
 
-    const qreal zNear = 0.1, zFar = 1000.0, fov = 45.0;
+    const float zNear = 0.1f, zFar = 1000.0f, fov = 45.0f;
 
     // Reset projection
     m_projection.setToIdentity();
