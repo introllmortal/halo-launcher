@@ -647,7 +647,7 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
 
         // Theming
         m_settings->registerSetting("IconTheme", QString("flat_white"));
-        m_settings->registerSetting("ApplicationTheme", QString("halo"));
+        m_settings->registerSetting("ApplicationTheme", QString("dark"));
         m_settings->registerSetting("BackgroundCat", QString("kitteh"));
         m_settings->registerSetting("CatButtonVisible", true);
 
