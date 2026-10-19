@@ -96,13 +96,23 @@ Scene::Scene(const QImage& skin, bool slim, const QImage& cape) : QOpenGLFunctio
     m_elytra << leftWing << rightWing;
 
     // texture init
-    m_skinTexture = new QOpenGLTexture(skin.mirrored());
-    m_skinTexture->setMinificationFilter(QOpenGLTexture::Nearest);
-    m_skinTexture->setMagnificationFilter(QOpenGLTexture::Nearest);
+    auto createTextureFromImage = [](const QImage& inputImage, int defaultWidth, int defaultHeight) -> QOpenGLTexture* {
+        QImage img = inputImage;
+        if (img.isNull() || img.width() <= 0 || img.height() <= 0) {
+            img = QImage(defaultWidth, defaultHeight, QImage::Format_RGBA8888);
+            img.fill(Qt::transparent);
+        } else if (img.format() != QImage::Format_RGBA8888 && img.format() != QImage::Format_ARGB32) {
+            img = img.convertToFormat(QImage::Format_RGBA8888);
+        }
+        auto texture = new QOpenGLTexture(img.mirrored());
+        texture->setMinificationFilter(QOpenGLTexture::Nearest);
+        texture->setMagnificationFilter(QOpenGLTexture::Nearest);
+        texture->setWrapMode(QOpenGLTexture::ClampToEdge);
+        return texture;
+    };
 
-    m_capeTexture = new QOpenGLTexture(cape.mirrored());
-    m_capeTexture->setMinificationFilter(QOpenGLTexture::Nearest);
-    m_capeTexture->setMagnificationFilter(QOpenGLTexture::Nearest);
+    m_skinTexture = createTextureFromImage(skin, 64, 64);
+    m_capeTexture = createTextureFromImage(cape, 64, 32);
 }
 Scene::~Scene()
 {
@@ -114,27 +124,39 @@ Scene::~Scene()
     }
     delete m_cape;
 
-    m_skinTexture->destroy();
-    delete m_skinTexture;
+    if (m_skinTexture) {
+        if (m_skinTexture->isBound())
+            m_skinTexture->release();
+        m_skinTexture->destroy();
+        delete m_skinTexture;
+        m_skinTexture = nullptr;
+    }
 
-    m_capeTexture->destroy();
-    delete m_capeTexture;
+    if (m_capeTexture) {
+        if (m_capeTexture->isBound())
+            m_capeTexture->release();
+        m_capeTexture->destroy();
+        delete m_capeTexture;
+        m_capeTexture = nullptr;
+    }
 }
 
 void Scene::draw(QOpenGLShaderProgram* program)
 {
-    m_skinTexture->bind();
-    program->setUniformValue("texture", 0);
-    for (auto toDraw : { m_staticComponents, m_slim ? m_slimArms : m_normalArms, m_staticComponentsOverlay,
-                         m_slim ? m_slimArmsOverlay : m_normalArmsOverlay }) {
-        for (auto g : toDraw) {
-            g->draw(program);
+    if (m_skinTexture && m_skinTexture->isCreated()) {
+        m_skinTexture->bind();
+        program->setUniformValue("u_texture", 0);
+        for (auto toDraw : { m_staticComponents, m_slim ? m_slimArms : m_normalArms, m_staticComponentsOverlay,
+                             m_slim ? m_slimArmsOverlay : m_normalArmsOverlay }) {
+            for (auto g : toDraw) {
+                g->draw(program);
+            }
         }
+        m_skinTexture->release();
     }
-    m_skinTexture->release();
-    if (m_capeVisible) {
+    if (m_capeVisible && m_capeTexture && m_capeTexture->isCreated()) {
         m_capeTexture->bind();
-        program->setUniformValue("texture", 0);
+        program->setUniformValue("u_texture", 0);
         if (!m_elytraVisible) {
             m_cape->draw(program);
         } else {
@@ -146,23 +168,31 @@ void Scene::draw(QOpenGLShaderProgram* program)
     }
 }
 
-void updateTexture(QOpenGLTexture* texture, const QImage& img)
+static QOpenGLTexture* updateOrRecreateTexture(QOpenGLTexture* oldTexture, const QImage& inputImage, int defaultWidth, int defaultHeight)
 {
-    if (texture) {
-        if (texture->isBound())
-            texture->release();
-        texture->destroy();
-        texture->create();
-        texture->setSize(img.width(), img.height());
-        texture->setData(img);
-        texture->setMinificationFilter(QOpenGLTexture::Nearest);
-        texture->setMagnificationFilter(QOpenGLTexture::Nearest);
+    if (oldTexture) {
+        if (oldTexture->isBound())
+            oldTexture->release();
+        oldTexture->destroy();
+        delete oldTexture;
     }
+    QImage img = inputImage;
+    if (img.isNull() || img.width() <= 0 || img.height() <= 0) {
+        img = QImage(defaultWidth, defaultHeight, QImage::Format_RGBA8888);
+        img.fill(Qt::transparent);
+    } else if (img.format() != QImage::Format_RGBA8888 && img.format() != QImage::Format_ARGB32) {
+        img = img.convertToFormat(QImage::Format_RGBA8888);
+    }
+    auto texture = new QOpenGLTexture(img.mirrored());
+    texture->setMinificationFilter(QOpenGLTexture::Nearest);
+    texture->setMagnificationFilter(QOpenGLTexture::Nearest);
+    texture->setWrapMode(QOpenGLTexture::ClampToEdge);
+    return texture;
 }
 
 void Scene::setSkin(const QImage& skin)
 {
-    updateTexture(m_skinTexture, skin.mirrored());
+    m_skinTexture = updateOrRecreateTexture(m_skinTexture, skin, 64, 64);
 }
 
 void Scene::setMode(bool slim)
@@ -171,7 +201,7 @@ void Scene::setMode(bool slim)
 }
 void Scene::setCape(const QImage& cape)
 {
-    updateTexture(m_capeTexture, cape.mirrored());
+    m_capeTexture = updateOrRecreateTexture(m_capeTexture, cape, 64, 32);
 }
 void Scene::setCapeVisible(bool visible)
 {

@@ -118,11 +118,11 @@ void SkinOpenGLWindow::initializeGL()
 {
     initializeOpenGLFunctions();
 
-    glClearColor(0, 0, 1, 1);
+    glClearColor(0.f, 0.f, 0.f, 0.f);
 
     initShaders();
 
-    generateBackgroundTexture(32, 32, 1);
+    generateBackgroundTexture(64, 64, 8);
 
     QImage skin, cape;
     bool slim = false;
@@ -183,24 +183,11 @@ void SkinOpenGLWindow::resizeGL(int w, int h)
     // Calculate aspect ratio
     qreal aspect = qreal(w) / qreal(h ? h : 1);
 
-    const qreal zNear = 15., fov = 45;
+    const qreal zNear = 0.1, zFar = 1000.0, fov = 45.0;
 
     // Reset projection
     m_projection.setToIdentity();
-
-    // Build the reverse z perspective projection matrix
-    double radians = qDegreesToRadians(fov / 2.);
-    double sine = std::sin(radians);
-    if (sine == 0)
-        return;
-    double cotan = std::cos(radians) / sine;
-
-    m_projection(0, 0) = cotan / aspect;
-    m_projection(1, 1) = cotan;
-    m_projection(2, 2) = 0.;
-    m_projection(3, 2) = -1.;
-    m_projection(2, 3) = zNear;
-    m_projection(3, 3) = 0.;
+    m_projection.perspective(fov, aspect, zNear, zFar);
 }
 
 void SkinOpenGLWindow::paintGL()
@@ -217,7 +204,7 @@ void SkinOpenGLWindow::paintGL()
 
     // Enable depth buffer
     glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
+    glDepthFunc(GL_LEQUAL);
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -288,10 +275,10 @@ QImage generateChessboardImage(int width, int height, int tileSize, QColor baseC
 {
     QImage image(width, height, QImage::Format_RGB888);
     bool isDarkBase = Rainbow::luma(baseColor) < 0.5;
-    float contrast = isDarkBase ? 0.20f : 0.45f;
+    float contrast = isDarkBase ? 0.08f : 0.15f;
     auto contrastFunc = std::bind(isDarkBase ? Rainbow::lighten : Rainbow::darken, std::placeholders::_1, contrast, 1.0);
     auto white = contrastFunc(baseColor);
-    auto black = contrastFunc(calculateContrastingColor(baseColor));
+    auto black = baseColor;
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             bool isWhite = ((x / tileSize) + (y / tileSize)) % 2 == 0;
@@ -313,7 +300,7 @@ void SkinOpenGLWindow::renderBackground()
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);  // Disable depth buffer writing
     m_backgroundTexture->bind();
-    m_backgroundProgram->setUniformValue("texture", 0);
+    m_backgroundProgram->setUniformValue("u_texture", 0);
     m_background->draw(m_backgroundProgram);
     m_backgroundTexture->release();
     glDepthMask(GL_TRUE);  // Re-enable depth buffer writing

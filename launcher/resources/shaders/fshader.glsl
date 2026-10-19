@@ -7,14 +7,14 @@ precision mediump int;
 precision mediump float;
 #endif
 
-uniform sampler2D texture;
+uniform sampler2D u_texture;
 
 varying vec2 v_texcoord;
 
 void main()
 {
     // Set fragment color from texture
-    vec4 texColor = texture2D(texture, v_texcoord);
+    vec4 texColor = texture2D(u_texture, v_texcoord);
     if (texColor.a < 0.1) discard; // Optional: Discard fully transparent pixels
     gl_FragColor = texColor;
 }
