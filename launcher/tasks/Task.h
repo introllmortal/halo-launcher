@@ -99,7 +99,7 @@ class Task : public QObject, public QRunnable {
     bool isRunning() const;
     bool isFinished() const;
     bool wasSuccessful() const;
-    bool wasAborted() const;
+    virtual bool wasAborted() const;
 
     /*!
      * MultiStep tasks are combinations of multiple tasks into a single logical task.
