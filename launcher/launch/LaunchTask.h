@@ -83,6 +83,10 @@ class LaunchTask : public Task {
     bool abort() override;
 
     bool canAbort() const override;
+    bool wasAborted() const override;
+
+    int exitCode() const { return m_exitCode; }
+    void setExitCode(int code) { m_exitCode = code; }
 
     shared_qobject_ptr<LogModel> getLogModel();
 
@@ -125,6 +129,7 @@ class LaunchTask : public Task {
     int currentStep = -1;
     State state = NotStarted;
     qint64 m_pid = -1;
+    int m_exitCode = -1;
     LogParser m_stdoutParser;
     LogParser m_stderrParser;
 };

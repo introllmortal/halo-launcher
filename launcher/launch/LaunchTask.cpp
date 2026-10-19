@@ -117,7 +117,9 @@ void LaunchTask::finalizeSteps(bool successful, const QString& error)
     for (auto step = currentStep; step >= 0; step--) {
         m_steps[step]->finalize();
     }
-    if (successful) {
+    if (state == LaunchTask::Aborted || wasAborted()) {
+        emitAborted();
+    } else if (successful) {
         emitSucceeded();
     } else {
         emitFailed(error);
@@ -169,6 +171,11 @@ bool LaunchTask::canAbort() const
         }
     }
     return false;
+}
+
+bool LaunchTask::wasAborted() const
+{
+    return state == LaunchTask::Aborted || Task::wasAborted();
 }
 
 bool LaunchTask::abort()

@@ -404,6 +404,7 @@ void LaunchController::launchInstance()
     connect(m_launcher, &LaunchTask::readyForLaunch, this, &LaunchController::readyForLaunch);
     connect(m_launcher, &LaunchTask::succeeded, this, &LaunchController::onSucceeded);
     connect(m_launcher, &LaunchTask::failed, this, &LaunchController::onFailed);
+    connect(m_launcher, &LaunchTask::aborted, this, &LaunchController::emitAborted);
     connect(m_launcher, &LaunchTask::requestProgress, this, &LaunchController::onProgressRequested);
 
     // Prepend Online and Auth Status
@@ -489,11 +490,16 @@ void LaunchController::onSucceeded()
 
 void LaunchController::onFailed(QString reason)
 {
+    if (m_launcher && m_launcher->wasAborted()) {
+        emitAborted();
+        return;
+    }
+
     if (m_instance->settings()->get("ShowConsoleOnError").toBool()) {
         APPLICATION->showInstanceWindow(m_instance, "console");
     }
 
-    if (m_instance->hasCrashed() && (!m_launcher || !m_launcher->wasAborted()) && m_instance->settings()->get("EnableCrashAssistant").toBool()) {
+    if (m_instance->hasCrashed() && m_instance->settings()->get("EnableCrashAssistant").toBool()) {
         QString rawLog;
         QStringList logLines;
         if (m_launcher && m_launcher->getLogModel()) {
@@ -525,7 +531,8 @@ void LaunchController::onFailed(QString reason)
             }
         }
 
-        auto diagnosis = CrashAnalyzer::analyze(m_instance, logLines, latestCrashReport, -1);
+        int exitCode = m_launcher ? m_launcher->exitCode() : -1;
+        auto diagnosis = CrashAnalyzer::analyze(m_instance, logLines, latestCrashReport, exitCode);
         auto* dlg = new CrashAssistantDialog(diagnosis, m_instance, rawLog, m_parentWidget);
         dlg->setWindowFlags(Qt::Window);
         dlg->setAttribute(Qt::WA_DeleteOnClose);

@@ -197,21 +197,37 @@ DiagnosisResult CrashAnalyzer::detectMissingDependency(const QString& fullText, 
         return res;
     }
 
-    QString modA = match.captured(1).isEmpty() ? match.captured(3) : match.captured(1);
-    QString modB = match.captured(2).isEmpty() ? match.captured(4) : match.captured(2);
+    QString dependentMod;
+    QString requiredMod;
+
+    if (!match.captured(2).isEmpty() && !match.captured(3).isEmpty()) {
+        dependentMod = match.captured(2);
+        requiredMod = match.captured(3);
+    } else if (!match.captured(4).isEmpty() && !match.captured(5).isEmpty()) {
+        dependentMod = match.captured(4);
+        requiredMod = match.captured(5);
+    } else if (!match.captured(1).isEmpty()) {
+        requiredMod = match.captured(1);
+    } else if (!match.captured(6).isEmpty()) {
+        requiredMod = match.captured(6);
+    }
 
     res.category = CrashCategory::MissingDependency;
     res.fixAction = RecommendedFix::None;
 
     res.title = QCoreApplication::translate("CrashAnalyzer", "Missing Required Mod (Dependency)");
-    if (!modA.isEmpty() && !modB.isEmpty()) {
+    if (!dependentMod.isEmpty() && !requiredMod.isEmpty()) {
         res.description = QCoreApplication::translate("CrashAnalyzer",
             "Mod '%1' requires '%2' to be installed, but it is missing or incompatible.")
-            .arg(modA, modB);
+            .arg(dependentMod, requiredMod);
+    } else if (!requiredMod.isEmpty()) {
+        res.description = QCoreApplication::translate("CrashAnalyzer",
+            "The mod '%1' is required but is missing or incompatible.")
+            .arg(requiredMod);
     } else {
         res.description = QCoreApplication::translate("CrashAnalyzer",
             "One or more mods are missing their mandatory library dependencies:\n%1")
-            .arg(match.captured(0));
+            .arg(match.hasMatch() ? match.captured(0) : "Missing mandatory dependencies");
     }
 
     res.solutionText = QCoreApplication::translate("CrashAnalyzer",

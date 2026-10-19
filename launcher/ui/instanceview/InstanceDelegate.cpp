@@ -140,10 +140,12 @@ void drawBadges(QPainter* painter, const QStyleOptionViewItem& option, BaseInsta
     const int itemsPerRow = qMax(1, qFloor(double(option.rect.width() + spacing) / double(itemSide + spacing)));
     const int rows = qCeil((double)pixmaps.size() / (double)itemsPerRow);
     QListIterator<QString> it(pixmaps);
+    painter->save();
     painter->translate(option.rect.topLeft());
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < itemsPerRow; ++x) {
             if (!it.hasNext()) {
+                painter->restore();
                 return;
             }
             // FIXME: inject this.
@@ -156,7 +158,7 @@ void drawBadges(QPainter* painter, const QStyleOptionViewItem& option, BaseInsta
             icon.paint(painter, badgeRect, Qt::AlignCenter, mode, state);
         }
     }
-    painter->translate(-option.rect.topLeft());
+    painter->restore();
 }
 
 static QSize viewItemTextSize(const QStyleOptionViewItem* option)

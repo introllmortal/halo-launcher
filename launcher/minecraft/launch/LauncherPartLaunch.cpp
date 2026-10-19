@@ -185,8 +185,9 @@ void LauncherPartLaunch::on_state(LoggedProcess::State state)
             m_parent->instance()->setMinecraftRunning(false);
             // if the exit code wasn't 0, report this as a crash
             auto exitCode = m_process.exitCode();
+            m_parent->setExitCode(exitCode);
             if (exitCode != 0) {
-                emitFailed(tr("Game crashed."));
+                emitFailed(tr("Game crashed with exit code %1.").arg(exitCode));
                 return;
             }
             // FIXME: make this work again
