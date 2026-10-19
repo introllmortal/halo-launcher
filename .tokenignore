@@ -1,0 +1,4 @@
+CMakeLists.txt
+launcher/LaunchController.cpp
+launcher/diagnostics/CrashAnalyzer.cpp
+launcher/ui/dialogs/skins/SkinManageDialog.cpp

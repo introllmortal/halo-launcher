@@ -136,8 +136,10 @@ void ThemeManager::initializeWidgets()
 {
     themeDebugLog() << "<> Initializing Widget Themes";
     themeDebugLog() << "Loading Built-in Theme:" << addTheme(std::make_unique<SystemTheme>(m_defaultStyle, m_defaultPalette, true));
-    auto haloThemeId = addTheme(std::make_unique<HaloTheme>());
-    themeDebugLog() << "Loading Built-in Theme:" << haloThemeId;
+    themeDebugLog() << "Loading Built-in Theme:" << addTheme(std::make_unique<HaloTheme>(HaloAccent::Cyan));
+    themeDebugLog() << "Loading Built-in Theme:" << addTheme(std::make_unique<HaloTheme>(HaloAccent::Emerald));
+    themeDebugLog() << "Loading Built-in Theme:" << addTheme(std::make_unique<HaloTheme>(HaloAccent::Amethyst));
+    themeDebugLog() << "Loading Built-in Theme:" << addTheme(std::make_unique<HaloTheme>(HaloAccent::Amber));
     auto darkThemeId = addTheme(std::make_unique<DarkTheme>());
     themeDebugLog() << "Loading Built-in Theme:" << darkThemeId;
     themeDebugLog() << "Loading Built-in Theme:" << addTheme(std::make_unique<BrightTheme>());

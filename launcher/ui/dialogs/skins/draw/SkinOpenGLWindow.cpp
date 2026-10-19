@@ -254,16 +254,20 @@ void SkinOpenGLWindow::paintGL()
 void SkinOpenGLWindow::updateScene(SkinModel* skin)
 {
     if (skin && m_scene) {
+        makeCurrent();
         m_scene->setMode(skin->getModel() == SkinModel::SLIM);
         m_scene->setSkin(skin->getTexture());
+        doneCurrent();
         update();
     }
 }
 void SkinOpenGLWindow::updateCape(const QImage& cape)
 {
     if (m_scene) {
+        makeCurrent();
         m_scene->setCapeVisible(!cape.isNull());
         m_scene->setCape(cape);
+        doneCurrent();
         update();
     }
 }
@@ -272,7 +276,7 @@ QColor calculateContrastingColor(const QColor& color)
 {
     auto luma = Rainbow::luma(color);
     if (luma < 0.5) {
-        constexpr float contrast = 0.05f;
+        constexpr float contrast = 0.20f;
         return Rainbow::lighten(color, contrast);
     } else {
         constexpr float contrast = 0.2f;
@@ -284,7 +288,7 @@ QImage generateChessboardImage(int width, int height, int tileSize, QColor baseC
 {
     QImage image(width, height, QImage::Format_RGB888);
     bool isDarkBase = Rainbow::luma(baseColor) < 0.5;
-    float contrast = isDarkBase ? 0.05 : 0.45;
+    float contrast = isDarkBase ? 0.20f : 0.45f;
     auto contrastFunc = std::bind(isDarkBase ? Rainbow::lighten : Rainbow::darken, std::placeholders::_1, contrast, 1.0);
     auto white = contrastFunc(baseColor);
     auto black = contrastFunc(calculateContrastingColor(baseColor));

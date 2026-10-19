@@ -107,7 +107,16 @@ SkinManageDialog::SkinManageDialog(QWidget* parent, MinecraftAccountPtr acct)
 
     setupCapes();
 
-    m_ui->listView->setCurrentIndex(m_list.index(m_list.getSelectedAccountSkin()));
+    int initialIndex = m_list.getSelectedAccountSkin();
+    if (initialIndex < 0 && m_list.rowCount() > 0) {
+        initialIndex = 0;
+    }
+    if (initialIndex >= 0 && initialIndex < m_list.rowCount()) {
+        auto idx = m_list.index(initialIndex);
+        m_selectedSkinKey = idx.data(Qt::UserRole).toString();
+        m_ui->listView->setCurrentIndex(idx);
+        m_ui->listView->selectionModel()->select(idx, QItemSelectionModel::ClearAndSelect);
+    }
 
     m_ui->buttonBox->button(QDialogButtonBox::Cancel)->setText(tr("Cancel"));
     m_ui->buttonBox->button(QDialogButtonBox::Ok)->setText(tr("OK"));

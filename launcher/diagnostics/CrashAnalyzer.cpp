@@ -306,8 +306,12 @@ DiagnosisResult CrashAnalyzer::detectModConflict(const QString& fullText, const 
     static const QRegularExpression suspectedPattern(R"(Suspected\s+Mods?:\s*(?:None|[\r\n]+\s*([^\r\n,]+)|([^\r\n,]+)))", QRegularExpression::CaseInsensitiveOption);
     auto match = suspectedPattern.match(fullText);
 
+    // Check NeoForge / FML ModLoadingException
+    static const QRegularExpression fmlPattern(R"(ModLoadingException:\s*Mod\s+['"]?([a-zA-Z0-9_\-]+)['"]?\s+failed\s+to\s+load|Failed\s+to\s+load\s+mod:\s*['"]?([a-zA-Z0-9_\-]+)['"]?|ModIdList:\s*\[([a-zA-Z0-9_\-]+)\])", QRegularExpression::CaseInsensitiveOption);
+    auto fmlMatch = fmlPattern.match(fullText);
+
     // Check Mixin application errors
-    static const QRegularExpression mixinPattern(R"(Critical\s+injection\s+failure:\s*Callback\s*(\S+)\s+in\s+(\S+)|MixinApplyError:\s*Mixin\s+\[([^\]]+)\]|merged\s+from\s+(\S+\.mixins\.json))", QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression mixinPattern(R"(Critical\s+injection\s+failure:\s*Callback\s*(\S+)\s+in\s+(\S+)|MixinApplyError:\s*Mixin\s+\[([^\]]+)\]|merged\s+from\s+(\S+\.mixins\.json)|MixinTransformerError:\s*An\s+unexpected\s+critical\s+error\s+was\s+encountered\s+in\s+(\S+))", QRegularExpression::CaseInsensitiveOption);
     auto mixinMatch = mixinPattern.match(fullText);
 
     QString modIdentifier;
@@ -317,8 +321,14 @@ DiagnosisResult CrashAnalyzer::detectModConflict(const QString& fullText, const 
             modIdentifier = cand;
         }
     }
+    if (modIdentifier.isEmpty() && fmlMatch.hasMatch()) {
+        if (!fmlMatch.captured(1).isEmpty()) modIdentifier = fmlMatch.captured(1);
+        else if (!fmlMatch.captured(2).isEmpty()) modIdentifier = fmlMatch.captured(2);
+        else modIdentifier = fmlMatch.captured(3);
+    }
     if (modIdentifier.isEmpty() && mixinMatch.hasMatch()) {
         if (!mixinMatch.captured(4).isEmpty()) modIdentifier = mixinMatch.captured(4);
+        else if (!mixinMatch.captured(5).isEmpty()) modIdentifier = mixinMatch.captured(5);
         else modIdentifier = mixinMatch.captured(3).isEmpty() ? mixinMatch.captured(2) : mixinMatch.captured(3);
     }
 
@@ -346,7 +356,13 @@ DiagnosisResult CrashAnalyzer::detectModConflict(const QString& fullText, const 
         res.actionButtonText = QCoreApplication::translate("CrashAnalyzer", "Disable %1").arg(res.offendingModName);
     }
 
-    res.technicalDetails = match.hasMatch() ? match.captured(0) : mixinMatch.captured(0);
+    if (match.hasMatch() && !match.captured(0).contains("None", Qt::CaseInsensitive)) {
+        res.technicalDetails = match.captured(0);
+    } else if (fmlMatch.hasMatch()) {
+        res.technicalDetails = fmlMatch.captured(0);
+    } else if (mixinMatch.hasMatch()) {
+        res.technicalDetails = mixinMatch.captured(0);
+    }
 
     return res;
 }
@@ -415,6 +431,10 @@ QString CrashAnalyzer::findModPathByName(BaseInstance* instance, const QString& 
     }
     // Remove punctuation
     cleanQuery.remove(':').remove('\'').remove('"');
+    cleanQuery = cleanQuery.trimmed();
+    if (cleanQuery.isEmpty()) {
+        return QString();
+    }
 
     QStringList searchFolders = {
         FS::PathCombine(instance->gameRoot(), "mods"),
@@ -428,6 +448,17 @@ QString CrashAnalyzer::findModPathByName(BaseInstance* instance, const QString& 
         QStringList files = dir.entryList({ "*.jar" }, QDir::Files);
         for (const auto& file : files) {
             if (file.contains(cleanQuery, Qt::CaseInsensitive)) {
+                return dir.absoluteFilePath(file);
+            }
+        }
+
+        // Normalize underscores and hyphens
+        QString normQuery = cleanQuery;
+        normQuery.replace('_', '-');
+        for (const auto& file : files) {
+            QString normFile = file;
+            normFile.replace('_', '-');
+            if (normFile.contains(normQuery, Qt::CaseInsensitive)) {
                 return dir.absoluteFilePath(file);
             }
         }

@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QPointer>
 #include <memory>
 
 #include "diagnostics/CrashAnalyzer.h"
@@ -23,6 +24,7 @@ public:
 
 private slots:
     void onApplyFix();
+    void onSafeMode();
     void onUploadLog();
     void onCopyDetails();
 
@@ -30,10 +32,11 @@ private:
     void setupUi();
 
     DiagnosisResult m_diagnosis;
-    BaseInstance* m_instance = nullptr;
+    QPointer<BaseInstance> m_instance;
     QString m_rawLog;
 
     QPushButton* m_btnApplyFix = nullptr;
+    QPushButton* m_btnSafeMode = nullptr;
     QPushButton* m_btnUploadLog = nullptr;
     QPushButton* m_btnCopy = nullptr;
     QPushButton* m_btnCancel = nullptr;

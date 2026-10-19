@@ -493,7 +493,7 @@ void LaunchController::onFailed(QString reason)
         APPLICATION->showInstanceWindow(m_instance, "console");
     }
 
-    if (m_instance->hasCrashed() && m_instance->settings()->get("EnableCrashAssistant").toBool()) {
+    if (m_instance->hasCrashed() && (!m_launcher || !m_launcher->wasAborted()) && m_instance->settings()->get("EnableCrashAssistant").toBool()) {
         QString rawLog;
         QStringList logLines;
         if (m_launcher && m_launcher->getLogModel()) {

@@ -35,15 +35,19 @@
 
 #include "InstanceDelegate.h"
 #include <QApplication>
+#include <QCache>
 #include <QDebug>
+#include <QIcon>
+#include <QLinearGradient>
 #include <QPainter>
+#include <QPainterPath>
+#include <QTextEdit>
 #include <QTextLayout>
 #include <QTextOption>
 #include <QtMath>
 
-#include <QIcon>
-#include <QTextEdit>
 #include "BaseInstance.h"
+#include "FileSystem.h"
 #include "InstanceList.h"
 #include "InstanceView.h"
 
@@ -68,43 +72,80 @@ static void viewItemTextLayout(QTextLayout& textLayout, int lineWidth, qreal& he
     textLayout.endLayout();
 }
 
+static QPixmap getCachedBanner(BaseInstance* instance)
+{
+    if (!instance) return QPixmap();
+
+    static QCache<QString, QPixmap> s_bannerCache(30);
+
+    QString id = instance->id();
+    if (s_bannerCache.contains(id)) {
+        return *s_bannerCache.object(id);
+    }
+
+    QStringList candidates = {
+        FS::PathCombine(instance->instanceRoot(), "banner.png"),
+        FS::PathCombine(instance->instanceRoot(), "banner.jpg"),
+        FS::PathCombine(instance->instanceRoot(), "banner.webp"),
+        FS::PathCombine(instance->gameRoot(), "banner.png"),
+        FS::PathCombine(instance->gameRoot(), "banner.jpg")
+    };
+
+    for (const auto& path : candidates) {
+        if (QFile::exists(path)) {
+            QPixmap pix(path);
+            if (!pix.isNull()) {
+                s_bannerCache.insert(id, new QPixmap(pix));
+                return pix;
+            }
+        }
+    }
+
+    // Cache null pixmap to avoid repeated filesystem checks
+    s_bannerCache.insert(id, new QPixmap());
+    return QPixmap();
+}
+
 ListViewDelegate::ListViewDelegate(QObject* parent) : QStyledItemDelegate(parent) {}
 
 void drawSelectionRect(QPainter* painter, const QStyleOptionViewItem& option, const QRect& rect)
 {
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing, true);
+    QRect cardRect = rect.adjusted(2, 2, -2, -2);
     if ((option.state & QStyle::State_Selected)) {
-        // Refined, subtle translucent accent instead of blinding solid neon
+        // Expressive, vibrant translucent accent covering the whole tile card
         QColor highlightBg = option.palette.color(QPalette::Highlight);
-        highlightBg.setAlpha(55); // ~22% soft tint
+        highlightBg.setAlpha(100); // ~40% translucent accent fill
         painter->setBrush(highlightBg);
 
-        QColor borderCol = option.palette.color(QPalette::Highlight);
-        borderCol.setAlpha(170);
-        painter->setPen(QPen(borderCol, 1.2));
-        painter->drawRoundedRect(rect.adjusted(1, 1, -1, -1), 5.0, 5.0);
-    } else {
-        QColor backgroundColor = option.palette.color(QPalette::Window);
-        backgroundColor.setAlpha(120);
-        painter->setBrush(backgroundColor);
+        QColor borderCol = option.palette.color(QPalette::Highlight).lighter(130);
+        borderCol.setAlpha(230);
+        painter->setPen(QPen(borderCol, 1.5));
+        painter->drawRoundedRect(cardRect, 6.0, 6.0);
+    } else if ((option.state & QStyle::State_MouseOver)) {
+        // Subtle translucent hover card
+        QColor hoverBg = option.palette.color(QPalette::Highlight);
+        hoverBg.setAlpha(35);
+        painter->setBrush(hoverBg);
         painter->setPen(Qt::NoPen);
-        painter->drawRoundedRect(rect, 5.0, 5.0);
+        painter->drawRoundedRect(cardRect, 6.0, 6.0);
     }
     painter->restore();
 }
 
 void drawFocusRect(QPainter* painter, const QStyleOptionViewItem& option, const QRect& rect)
 {
-    if (!(option.state & QStyle::State_HasFocus))
+    if (!(option.state & QStyle::State_HasFocus) || (option.state & QStyle::State_Selected))
         return;
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing, true);
+    QRect cardRect = rect.adjusted(2, 2, -2, -2);
     QColor focusCol = option.palette.color(QPalette::Highlight);
-    focusCol.setAlpha(130);
-    painter->setPen(QPen(focusCol, 1.0, Qt::DashLine));
+    focusCol.setAlpha(150);
+    painter->setPen(QPen(focusCol, 1.2, Qt::DashLine));
     painter->setBrush(Qt::NoBrush);
-    painter->drawRoundedRect(rect.adjusted(1, 1, -1, -1), 5.0, 5.0);
+    painter->drawRoundedRect(cardRect, 6.0, 6.0);
     painter->restore();
 }
 
@@ -205,66 +246,36 @@ void ListViewDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
 
     textHighlightRect.adjust(0, iconSize + 5, 0, 0);
 
-    // draw background
-    {
-        // FIXME: unused
-        // QSize textSize = viewItemTextSize ( &opt );
-        drawSelectionRect(painter, opt, textHighlightRect);
-        /*
-        QPalette::ColorGroup cg;
-        QStyleOptionViewItem opt2(opt);
+    auto instance = (BaseInstance*)index.data(InstanceList::InstancePointerRole).value<void*>();
+    QRect cardRect = opt.rect.adjusted(2, 2, -2, -2);
+    if (instance) {
+        QPixmap banner = getCachedBanner(instance);
+        if (!banner.isNull()) {
+            painter->save();
+            painter->setRenderHint(QPainter::Antialiasing, true);
+            painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+            QPainterPath clipPath;
+            clipPath.addRoundedRect(cardRect, 6.0, 6.0);
+            painter->setClipPath(clipPath);
 
-        if ((opt.widget && opt.widget->isEnabled()) || (opt.state & QStyle::State_Enabled))
-        {
-            if (!(opt.state & QStyle::State_Active))
-                cg = QPalette::Inactive;
-            else
-                cg = QPalette::Normal;
+            QPixmap scaled = banner.scaled(cardRect.size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+            int xOffset = qMax(0, (scaled.width() - cardRect.width()) / 2);
+            int yOffset = qMax(0, (scaled.height() - cardRect.height()) / 2);
+            painter->drawPixmap(cardRect.topLeft(), scaled, QRect(xOffset, yOffset, cardRect.width(), cardRect.height()));
+
+            // Semi-transparent cinematic dark gradient overlay
+            QLinearGradient grad(cardRect.topLeft(), cardRect.bottomLeft());
+            grad.setColorAt(0.0, QColor(15, 18, 24, 110));
+            grad.setColorAt(0.45, QColor(15, 18, 24, 150));
+            grad.setColorAt(1.0, QColor(15, 18, 24, 235));
+            painter->fillRect(cardRect, grad);
+            painter->restore();
         }
-        else
-        {
-            cg = QPalette::Disabled;
-        }
-        */
-        /*
-        opt2.palette.setCurrentColorGroup(cg);
-
-        // fill in background, if any
-
-
-        if (opt.backgroundBrush.style() != Qt::NoBrush)
-        {
-            QPointF oldBO = painter->brushOrigin();
-            painter->setBrushOrigin(opt.rect.topLeft());
-            painter->fillRect(opt.rect, opt.backgroundBrush);
-            painter->setBrushOrigin(oldBO);
-        }
-
-        drawSelectionRect(painter, opt2, textHighlightRect);
-        */
-
-        /*
-        if (opt.showDecorationSelected)
-        {
-            drawSelectionRect(painter, opt2, opt.rect);
-            drawFocusRect(painter, opt2, opt.rect);
-            // painter->fillRect ( opt.rect, opt.palette.brush ( cg, QPalette::Highlight ) );
-        }
-        else
-        {
-
-            // if ( opt.state & QStyle::State_Selected )
-            {
-                // QRect textRect = subElementRect ( QStyle::SE_ItemViewItemText,  opt,
-                // opt.widget );
-                // painter->fillRect ( textHighlightRect, opt.palette.brush ( cg,
-                // QPalette::Highlight ) );
-                drawSelectionRect(painter, opt2, textHighlightRect);
-                drawFocusRect(painter, opt2, textHighlightRect);
-            }
-        }
-        */
     }
+
+    drawSelectionRect(painter, opt, opt.rect);
+    drawFocusRect(painter, opt, opt.rect);
+
 
     // icon mode and state, also used for badges
     QIcon::Mode mode = QIcon::Normal;
@@ -311,8 +322,7 @@ void ListViewDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         line.draw(painter, position);
     }
 
-    // FIXME: this really has no business of being here. Make generic.
-    auto instance = (BaseInstance*)index.data(InstanceList::InstancePointerRole).value<void*>();
+    // Draw status badges if instance is valid
     if (instance) {
         drawBadges(painter, opt, instance, mode, state);
     }

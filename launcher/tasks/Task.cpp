@@ -196,6 +196,11 @@ bool Task::wasSuccessful() const
     return m_state == State::Succeeded;
 }
 
+bool Task::wasAborted() const
+{
+    return m_state == State::AbortedByUser;
+}
+
 QString Task::failReason() const
 {
     return m_failReason;

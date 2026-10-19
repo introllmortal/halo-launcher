@@ -128,6 +128,12 @@ void CrashAssistantDialog::setupUi()
     connect(m_btnCancel, &QPushButton::clicked, this, &QDialog::reject);
     buttonLayout->addWidget(m_btnCancel);
 
+    // Safe Mode button to quickly recover from crash loops
+    m_btnSafeMode = new QPushButton(tr("Safe Mode"), this);
+    m_btnSafeMode->setToolTip(tr("Temporarily reset active shaders, resource packs, and JVM overrides to recover from crashes."));
+    connect(m_btnSafeMode, &QPushButton::clicked, this, &CrashAssistantDialog::onSafeMode);
+    buttonLayout->addWidget(m_btnSafeMode);
+
     // Primary Fix Action Button
     if (m_diagnosis.hasFix() && !m_diagnosis.actionButtonText.isEmpty()) {
         m_btnApplyFix = new QPushButton(m_diagnosis.actionButtonText, this);
@@ -158,6 +164,9 @@ void CrashAssistantDialog::onApplyFix()
         case RecommendedFix::DisableMod: {
             if (!m_diagnosis.offendingModPath.isEmpty() && QFile::exists(m_diagnosis.offendingModPath)) {
                 QString disabledPath = m_diagnosis.offendingModPath + ".disabled";
+                if (QFile::exists(disabledPath)) {
+                    QFile::remove(disabledPath);
+                }
                 if (QFile::rename(m_diagnosis.offendingModPath, disabledPath)) {
                     QMessageBox::information(this, tr("Mod Disabled"),
                         tr("Conflicting mod has been disabled:\n%1\nYou can now relaunch Minecraft.")
@@ -172,6 +181,9 @@ void CrashAssistantDialog::onApplyFix()
         case RecommendedFix::DeleteConfig: {
             if (!m_diagnosis.offendingConfigPath.isEmpty() && QFile::exists(m_diagnosis.offendingConfigPath)) {
                 QString backupPath = m_diagnosis.offendingConfigPath + ".backup";
+                if (QFile::exists(backupPath)) {
+                    QFile::remove(backupPath);
+                }
                 QFile::rename(m_diagnosis.offendingConfigPath, backupPath);
                 QMessageBox::information(this, tr("Config Reset"),
                     tr("The corrupted config file has been backed up and reset.\nMinecraft will recreate a clean default config upon next launch."));
@@ -213,6 +225,54 @@ void CrashAssistantDialog::onApplyFix()
         case RecommendedFix::None:
             break;
     }
+}
+
+void CrashAssistantDialog::onSafeMode()
+{
+    if (!m_instance) {
+        QMessageBox::warning(this, tr("Warning"), tr("Instance is no longer available."));
+        return;
+    }
+
+    // 1. Reset active shader configurations
+    QString optionsShaders = FS::PathCombine(m_instance->gameRoot(), "optionsshaders.txt");
+    if (QFile::exists(optionsShaders)) {
+        QFile::remove(optionsShaders);
+    }
+    QString irisProps = FS::PathCombine(m_instance->gameRoot(), "config/iris.properties");
+    if (QFile::exists(irisProps)) {
+        QFile::remove(irisProps);
+    }
+    QString oculusProps = FS::PathCombine(m_instance->gameRoot(), "config/oculus.properties");
+    if (QFile::exists(oculusProps)) {
+        QFile::remove(oculusProps);
+    }
+
+    // 2. Clear enabled resource packs in options.txt
+    QString optionsPath = FS::PathCombine(m_instance->gameRoot(), "options.txt");
+    if (QFile::exists(optionsPath)) {
+        QFile optFile(optionsPath);
+        if (optFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QString content = QString::fromUtf8(optFile.readAll());
+            optFile.close();
+            static const QRegularExpression rpRegex(R"(resourcePacks:\[.*\])");
+            content.replace(rpRegex, "resourcePacks:[]");
+            if (optFile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                optFile.write(content.toUtf8());
+                optFile.close();
+            }
+        }
+    }
+
+    // 3. Reset hazardous JVM overrides
+    if (m_instance->settings()) {
+        m_instance->settings()->set("OverrideJavaArgs", false);
+        m_instance->saveNow();
+    }
+
+    QMessageBox::information(this, tr("Safe Mode Prepared"),
+        tr("Shaders, resource packs, and custom Java parameters have been safely reset.\nYou can now relaunch Minecraft."));
+    accept();
 }
 
 void CrashAssistantDialog::onUploadLog()
