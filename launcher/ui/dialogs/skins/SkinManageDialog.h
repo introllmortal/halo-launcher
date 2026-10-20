@@ -37,6 +37,7 @@ class SkinManageDialog : public QDialog, public SkinProvider {
     explicit SkinManageDialog(QWidget* parent, MinecraftAccountPtr acct);
     virtual ~SkinManageDialog();
     void resizeEvent(QResizeEvent* event) override;
+    void showEvent(QShowEvent* event) override;
 
     virtual SkinModel* getSelectedSkin() override;
     virtual QHash<QString, QImage> capes() override;

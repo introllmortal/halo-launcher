@@ -26,6 +26,11 @@ void main()
     // Calculate vertex position in screen space
     gl_Position = mvp_matrix * model_matrix * a_position;
 
+    // Invert the z component of our Reverse Z matrix back to standard NDC
+    float near_z  = gl_Position.z;
+    float w_c     = gl_Position.w;
+    gl_Position.z = w_c - near_z;
+
     // Pass texture coordinate to fragment shader
     // Value will be automatically interpolated to fragments inside polygon faces
     v_texcoord = a_texcoord;

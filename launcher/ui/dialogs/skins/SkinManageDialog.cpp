@@ -31,6 +31,7 @@
 #include <QMenu>
 #include <QMimeDatabase>
 #include <QPainter>
+#include <QShowEvent>
 #include <QUrl>
 
 #include "Application.h"
@@ -583,9 +584,23 @@ void SkinManageDialog::resizeEvent(QResizeEvent* event)
     } else {
         m_ui->capeImage->clear();
     }
+
     if (auto skin = getSelectedSkin(); skin && !m_skinPreview) {
         m_skinPreviewLabel->setPixmap(
             QPixmap::fromImage(skin->getPreview()).scaled(m_skinPreviewLabel->size(), Qt::KeepAspectRatio, Qt::FastTransformation));
+    }
+}
+
+void SkinManageDialog::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    if (auto skin = getSelectedSkin()) {
+        if (m_skinPreview) {
+            m_skinPreview->updateScene(skin);
+            auto id = m_ui->capeCombo->currentData();
+            auto cape = m_capes.value(id.toString(), {});
+            m_skinPreview->updateCape(cape);
+        }
     }
 }
 

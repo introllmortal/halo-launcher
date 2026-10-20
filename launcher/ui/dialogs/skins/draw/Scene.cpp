@@ -145,7 +145,7 @@ void Scene::draw(QOpenGLShaderProgram* program)
 {
     if (m_skinTexture && m_skinTexture->isCreated()) {
         m_skinTexture->bind();
-        program->setUniformValue("u_texture", 0);
+        program->setUniformValue("texture", 0);
         for (auto toDraw : { m_staticComponents, m_slim ? m_slimArms : m_normalArms, m_staticComponentsOverlay,
                              m_slim ? m_slimArmsOverlay : m_normalArmsOverlay }) {
             for (auto g : toDraw) {
@@ -156,7 +156,7 @@ void Scene::draw(QOpenGLShaderProgram* program)
     }
     if (m_capeVisible && m_capeTexture && m_capeTexture->isCreated()) {
         m_capeTexture->bind();
-        program->setUniformValue("u_texture", 0);
+        program->setUniformValue("texture", 0);
         if (!m_elytraVisible) {
             m_cape->draw(program);
         } else {

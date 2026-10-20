@@ -118,20 +118,28 @@ void SkinOpenGLWindow::initializeGL()
 {
     initializeOpenGLFunctions();
 
-    glClearColor(0.f, 0.f, 0.f, 0.f);
+    glClearColor(0, 0, 1, 1);
 
     initShaders();
 
-    generateBackgroundTexture(64, 64, 8);
+    generateBackgroundTexture(32, 32, 1);
 
     QImage skin, cape;
     bool slim = false;
-    if (m_parent) {
+    if (m_skinDirty) {
+        skin = m_pendingSkin;
+        slim = m_pendingSlim;
+        m_skinDirty = false;
+    } else if (m_parent) {
         if (auto s = m_parent->getSelectedSkin()) {
             skin = s->getTexture();
-            slim = s->getModel() == SkinModel::SLIM;
+            slim = (s->getModel() == SkinModel::SLIM);
             cape = m_parent->capes().value(s->getCapeId(), {});
         }
+    }
+    if (m_capeDirty) {
+        cape = m_pendingCape;
+        m_capeDirty = false;
     }
 
     m_scene = new opengl::Scene(skin, slim, cape);
@@ -183,11 +191,24 @@ void SkinOpenGLWindow::resizeGL(int w, int h)
     // Calculate aspect ratio
     float aspect = float(w) / float(h ? h : 1);
 
-    const float zNear = 0.1f, zFar = 1000.0f, fov = 45.0f;
+    const float zNear = 15.0f, fov = 45.0f;
 
     // Reset projection
     m_projection.setToIdentity();
-    m_projection.perspective(fov, aspect, zNear, zFar);
+
+    // Build the reverse z perspective projection matrix
+    double radians = qDegreesToRadians(double(fov) / 2.0);
+    double sine = std::sin(radians);
+    if (sine == 0)
+        return;
+    double cotan = std::cos(radians) / sine;
+
+    m_projection(0, 0) = float(cotan / aspect);
+    m_projection(1, 1) = float(cotan);
+    m_projection(2, 2) = 0.0f;
+    m_projection(3, 2) = -1.0f;
+    m_projection(2, 3) = zNear;
+    m_projection(3, 3) = 0.0f;
 }
 
 void SkinOpenGLWindow::paintGL()
@@ -199,12 +220,24 @@ void SkinOpenGLWindow::paintGL()
         glViewport(0, 0, scaledSize.width(), scaledSize.height());
     }
 
+    // Process any dirty textures while context is current
+    if (m_skinDirty && m_scene) {
+        m_scene->setMode(m_pendingSlim);
+        m_scene->setSkin(m_pendingSkin);
+        m_skinDirty = false;
+    }
+    if (m_capeDirty && m_scene) {
+        m_scene->setCapeVisible(!m_pendingCape.isNull());
+        m_scene->setCape(m_pendingCape);
+        m_capeDirty = false;
+    }
+
     // Clear color and depth buffer
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // Enable depth buffer
     glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LEQUAL);
+    glDepthFunc(GL_LESS);
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -240,21 +273,35 @@ void SkinOpenGLWindow::paintGL()
 
 void SkinOpenGLWindow::updateScene(SkinModel* skin)
 {
-    if (skin && m_scene) {
+    if (skin) {
+        m_pendingSkin = skin->getTexture();
+        m_pendingSlim = (skin->getModel() == SkinModel::SLIM);
+        m_skinDirty = true;
+    }
+    if (m_scene && isValid()) {
         makeCurrent();
-        m_scene->setMode(skin->getModel() == SkinModel::SLIM);
-        m_scene->setSkin(skin->getTexture());
+        m_scene->setMode(m_pendingSlim);
+        m_scene->setSkin(m_pendingSkin);
+        m_skinDirty = false;
         doneCurrent();
+        update();
+    } else {
         update();
     }
 }
+
 void SkinOpenGLWindow::updateCape(const QImage& cape)
 {
-    if (m_scene) {
+    m_pendingCape = cape;
+    m_capeDirty = true;
+    if (m_scene && isValid()) {
         makeCurrent();
-        m_scene->setCapeVisible(!cape.isNull());
-        m_scene->setCape(cape);
+        m_scene->setCapeVisible(!m_pendingCape.isNull());
+        m_scene->setCape(m_pendingCape);
+        m_capeDirty = false;
         doneCurrent();
+        update();
+    } else {
         update();
     }
 }
@@ -263,7 +310,7 @@ QColor calculateContrastingColor(const QColor& color)
 {
     auto luma = Rainbow::luma(color);
     if (luma < 0.5) {
-        constexpr float contrast = 0.20f;
+        constexpr float contrast = 0.05f;
         return Rainbow::lighten(color, contrast);
     } else {
         constexpr float contrast = 0.2f;
@@ -275,10 +322,10 @@ QImage generateChessboardImage(int width, int height, int tileSize, QColor baseC
 {
     QImage image(width, height, QImage::Format_RGB888);
     bool isDarkBase = Rainbow::luma(baseColor) < 0.5;
-    float contrast = isDarkBase ? 0.08f : 0.15f;
+    float contrast = isDarkBase ? 0.05 : 0.45;
     auto contrastFunc = std::bind(isDarkBase ? Rainbow::lighten : Rainbow::darken, std::placeholders::_1, contrast, 1.0);
     auto white = contrastFunc(baseColor);
-    auto black = baseColor;
+    auto black = contrastFunc(calculateContrastingColor(baseColor));
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             bool isWhite = ((x / tileSize) + (y / tileSize)) % 2 == 0;
@@ -300,7 +347,7 @@ void SkinOpenGLWindow::renderBackground()
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);  // Disable depth buffer writing
     m_backgroundTexture->bind();
-    m_backgroundProgram->setUniformValue("u_texture", 0);
+    m_backgroundProgram->setUniformValue("texture", 0);
     m_background->draw(m_backgroundProgram);
     m_backgroundTexture->release();
     glDepthMask(GL_TRUE);  // Re-enable depth buffer writing

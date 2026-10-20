@@ -82,4 +82,10 @@ class SkinOpenGLWindow : public QOpenGLWindow, protected QOpenGLFunctions {
     QOpenGLTexture* m_backgroundTexture = nullptr;
     QColor m_baseColor;
     SkinProvider* m_parent = nullptr;
+
+    QImage m_pendingSkin;
+    bool m_pendingSlim = false;
+    bool m_skinDirty = false;
+    QImage m_pendingCape;
+    bool m_capeDirty = false;
 };
