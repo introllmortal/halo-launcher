@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "CrashAnalyzer.h"
+#include "Application.h"
+#include "GpuSanityChecker.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -35,7 +37,7 @@ DiagnosisResult CrashAnalyzer::analyze(BaseInstance* instance, const QStringList
     if (res.category != CrashCategory::Unknown) return res;
 
     // 5. Check Graphics Driver / OpenGL Failure
-    res = detectGraphicsDriverCrash(combinedText, exitCode);
+    res = detectGraphicsDriverCrash(combinedText, exitCode, instance);
     if (res.category != CrashCategory::Unknown) return res;
 
     // 6. Check Corrupted Configs
@@ -238,7 +240,7 @@ DiagnosisResult CrashAnalyzer::detectMissingDependency(const QString& fullText, 
     return res;
 }
 
-DiagnosisResult CrashAnalyzer::detectGraphicsDriverCrash(const QString& fullText, int exitCode)
+DiagnosisResult CrashAnalyzer::detectGraphicsDriverCrash(const QString& fullText, int exitCode, BaseInstance* instance)
 {
     DiagnosisResult res;
     bool isGpuCrash = false;
@@ -253,13 +255,57 @@ DiagnosisResult CrashAnalyzer::detectGraphicsDriverCrash(const QString& fullText
     } else if (fullText.contains("nvoglv64.dll", Qt::CaseInsensitive) || fullText.contains("atio6axx.dll", Qt::CaseInsensitive) || fullText.contains("ig9ic64.dll", Qt::CaseInsensitive) || fullText.contains("ig7ic64.dll", Qt::CaseInsensitive) || fullText.contains("ig4icd64.dll", Qt::CaseInsensitive)) {
         isGpuCrash = true;
         reason = "Graphics driver crashed in native GPU DLL";
+    } else if (fullText.contains("net.irisshaders.iris", Qt::CaseInsensitive) && (fullText.contains("Shader compilation failed", Qt::CaseInsensitive) || fullText.contains("Program linking failed", Qt::CaseInsensitive) || fullText.contains("OpenGL", Qt::CaseInsensitive))) {
+        isGpuCrash = true;
+        reason = "Iris shader pipeline crash";
+    } else if (fullText.contains("me.jellysquid.mods.sodium", Qt::CaseInsensitive) && fullText.contains("OpenGL", Qt::CaseInsensitive)) {
+        isGpuCrash = true;
+        reason = "Sodium OpenGL pipeline crash";
+    } else if (fullText.contains("org.embeddedt.embeddium", Qt::CaseInsensitive) && fullText.contains("OpenGL", Qt::CaseInsensitive)) {
+        isGpuCrash = true;
+        reason = "Embeddium OpenGL pipeline crash";
+    } else if (fullText.contains("org.lwjgl.opengl.OpenGLException", Qt::CaseInsensitive) || fullText.contains("GL_OUT_OF_MEMORY", Qt::CaseInsensitive)) {
+        isGpuCrash = true;
+        reason = "OpenGL Exception / Out of GPU memory";
     }
 
     if (!isGpuCrash) return res;
 
     res.category = CrashCategory::GraphicsDriver;
-    res.fixAction = RecommendedFix::DisableShaders;
 
+    QString javaPath;
+    if (instance && instance->settings()) {
+        if (instance->settings()->get("OverrideJavaLocation").toBool()) {
+            javaPath = instance->settings()->get("JavaPath").toString();
+        }
+    }
+    if (javaPath.isEmpty()) {
+        javaPath = APPLICATION->settings()->get("JavaPath").toString();
+    }
+
+    if (GpuSanityChecker::isDualGpu() && !GpuSanityChecker::isHighPerformanceEnforced(javaPath)) {
+        res.fixAction = RecommendedFix::AssignDedicatedGpu;
+        QString dgpu = GpuSanityChecker::discreteGpuNames().join(", ");
+        QString igpu = GpuSanityChecker::integratedGpuNames().join(", ");
+
+        res.title = QCoreApplication::translate("CrashAnalyzer", "Hybrid GPU Detected (Integrated Graphics in Use)");
+        res.description = QCoreApplication::translate("CrashAnalyzer",
+            "Minecraft failed to communicate with your graphics processor (%1).\n"
+            "Your system has hybrid graphics: dedicated (%2) and integrated (%3).\n"
+            "The game appears to be running on the integrated graphics card instead of the dedicated GPU.")
+            .arg(reason, dgpu.isEmpty() ? "dGPU" : dgpu, igpu.isEmpty() ? "iGPU" : igpu);
+
+        res.solutionText = QCoreApplication::translate("CrashAnalyzer",
+            "Click 'Enforce Dedicated GPU' below to register high-performance GPU preference for Java in Windows, then relaunch Minecraft.");
+
+        res.actionButtonText = QCoreApplication::translate("CrashAnalyzer", "Enforce Dedicated GPU");
+        res.technicalDetails = QString("GPU Reason: %1\nDiscrete GPU: %2\nIntegrated GPU: %3\nExit Code: %4")
+            .arg(reason, dgpu, igpu).arg(exitCode);
+
+        return res;
+    }
+
+    res.fixAction = RecommendedFix::DisableShaders;
     res.title = QCoreApplication::translate("CrashAnalyzer", "Graphics Driver / OpenGL Error");
     res.description = QCoreApplication::translate("CrashAnalyzer",
         "Minecraft failed to communicate with your graphics card (%1).\n"

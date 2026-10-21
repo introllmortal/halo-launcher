@@ -53,6 +53,8 @@ set(CORE_SOURCES
     # Crash Diagnostics
     diagnostics/CrashAnalyzer.h
     diagnostics/CrashAnalyzer.cpp
+    diagnostics/GpuSanityChecker.h
+    diagnostics/GpuSanityChecker.cpp
 
     # Resource downloading task
     ResourceDownloadTask.h
@@ -1306,6 +1308,12 @@ endif()
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(Launcher_logic
         gamemode
+    )
+endif()
+
+if(WIN32)
+    target_link_libraries(Launcher_logic
+        dxgi
     )
 endif()
 

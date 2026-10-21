@@ -18,6 +18,8 @@
 
 #include "BaseInstance.h"
 #include "FileSystem.h"
+#include "Application.h"
+#include "diagnostics/GpuSanityChecker.h"
 #include "settings/SettingsObject.h"
 #include "ui/GuiUtil.h"
 
@@ -218,6 +220,27 @@ void CrashAssistantDialog::onApplyFix()
                 QMessageBox::information(this, tr("Shaders Disabled"),
                     tr("Active shaders have been reset to prevent graphics driver crashes."));
                 accept();
+            }
+            break;
+        }
+        case RecommendedFix::AssignDedicatedGpu: {
+            QString javaPath;
+            if (m_instance && m_instance->settings()) {
+                if (m_instance->settings()->get("OverrideJavaLocation").toBool()) {
+                    javaPath = m_instance->settings()->get("JavaPath").toString();
+                }
+            }
+            if (javaPath.isEmpty()) {
+                javaPath = APPLICATION->settings()->get("JavaPath").toString();
+            }
+
+            if (GpuSanityChecker::setGpuPreference(javaPath)) {
+                QMessageBox::information(this, tr("GPU Preference Set"),
+                    tr("High-Performance GPU preference (GpuPreference=2) has been successfully registered for Java in Windows!\nYou can now relaunch Minecraft."));
+                accept();
+            } else {
+                QMessageBox::warning(this, tr("Failed to Set GPU Preference"),
+                    tr("Could not apply GPU preference to Windows registry.\nPlease check that a valid Java executable is configured."));
             }
             break;
         }

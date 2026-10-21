@@ -17,6 +17,7 @@
  */
 
 #include "HardwareInfo.h"
+#include "diagnostics/GpuSanityChecker.h"
 
 #include <QDebug>
 #include <QStringList>
@@ -353,3 +354,8 @@ QStringList HardwareInfo::gpuInfo()
     return { "GPU discovery failed: not implemented for this OS" };
 }
 #endif
+
+bool HardwareInfo::isDualGpu()
+{
+    return GpuSanityChecker::isDualGpu();
+}

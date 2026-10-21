@@ -63,10 +63,15 @@ class JavaPage : public QWidget, public BasePage {
 
     bool apply() override;
 
+   public slots:
+    void updateGpuStatus();
+
    private slots:
     void on_downloadJavaButton_clicked();
     void on_removeJavaButton_clicked();
     void on_refreshJavaButton_clicked();
+    void enforceGpuClicked();
+    void resetGpuClicked();
 
    private:
     Ui::JavaPage* ui;

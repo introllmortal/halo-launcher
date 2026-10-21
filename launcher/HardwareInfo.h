@@ -26,6 +26,7 @@ QString cpuInfo();
 uint64_t totalRamMiB();
 uint64_t availableRamMiB();
 QStringList gpuInfo();
+bool isDualGpu();
 }  // namespace HardwareInfo
 
 #ifdef Q_OS_MACOS
