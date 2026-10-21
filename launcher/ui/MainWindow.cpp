@@ -46,6 +46,7 @@
 #include "ui_MainWindow.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QUrl>
 #include <QUrlQuery>
@@ -561,6 +562,16 @@ void MainWindow::showInstanceContextMenu(const QPoint& pos)
         QAction* actionVoid = new QAction(m_selectedInstance->name(), this);
         actionVoid->setEnabled(false);
         actions.prepend(actionVoid);
+
+        // Add Share Latest Log action
+        QAction* actionShareLogSep = new QAction(this);
+        actionShareLogSep->setSeparator(true);
+        actions.append(actionShareLogSep);
+
+        QAction* actionShareLog = new QAction(tr("Share Latest Log (mclo.gs)"), this);
+        actionShareLog->setIcon(QIcon::fromTheme("document-share"));
+        connect(actionShareLog, &QAction::triggered, this, &MainWindow::shareLatestLogMclogs);
+        actions.append(actionShareLog);
     } else {
         auto group = view->groupNameAt(pos);
 
@@ -597,6 +608,45 @@ void MainWindow::showInstanceContextMenu(const QPoint& pos)
         myMenu.setEnabled(m_selectedInstance->canLaunch());
     */
     myMenu.exec(view->mapToGlobal(pos));
+}
+
+void MainWindow::shareLatestLogMclogs()
+{
+    if (!m_selectedInstance) {
+        return;
+    }
+
+    QString logPath = FS::PathCombine(m_selectedInstance->gameRoot(), "logs", "latest.log");
+    QFileInfo logInfo(logPath);
+    if (!logInfo.exists() || !logInfo.isFile()) {
+        CustomMessageBox::selectable(this, tr("Log Not Found"),
+                                     tr("No latest.log was found for \"%1\".").arg(m_selectedInstance->name()),
+                                     QMessageBox::Information)
+            ->show();
+        return;
+    }
+
+    QFile file(logPath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        CustomMessageBox::selectable(this, tr("Read Error"),
+                                     tr("Could not open latest.log for reading."),
+                                     QMessageBox::Warning)
+            ->show();
+        return;
+    }
+
+    QString logContent = QString::fromUtf8(file.readAll());
+    file.close();
+
+    if (logContent.trimmed().isEmpty()) {
+        CustomMessageBox::selectable(this, tr("Empty Log"),
+                                     tr("The latest.log file is empty."),
+                                     QMessageBox::Information)
+            ->show();
+        return;
+    }
+
+    GuiUtil::uploadPaste(m_selectedInstance->name() + " (latest.log)", logContent, this);
 }
 
 void MainWindow::updateMainToolBar()

@@ -41,6 +41,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkRequest>
 #include <QRegularExpression>
 #include <QUrlQuery>
 #include "logs/AnonymizeLog.h"
@@ -52,6 +53,7 @@ const std::array<PasteUpload::PasteTypeInfo, 4> PasteUpload::PasteTypes = { { { 
 
 QNetworkReply* PasteUpload::getReply(QNetworkRequest& request)
 {
+    request.setTransferTimeout(15000);
     switch (m_paste_type) {
         case PasteUpload::NullPointer: {
             QHttpMultiPart* multiPart = new QHttpMultiPart{ QHttpMultiPart::FormDataType, this };

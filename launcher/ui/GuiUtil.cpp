@@ -59,10 +59,12 @@
 constexpr int MaxMclogsLines = 25000;
 constexpr int InitialMclogsLines = 10000;
 constexpr int FinalMclogsLines = 14900;
+constexpr qint64 MaxMclogsSizeBytes = 9 * 1024 * 1024; // 9 MB safety limit for mclo.gs
 
 QString truncateLogForMclogs(const QString& logContent)
 {
-    QStringList lines = logContent.split("\n");
+    QString content = logContent;
+    QStringList lines = content.split("\n");
     if (lines.size() > MaxMclogsLines) {
         QString truncatedLog = lines.mid(0, InitialMclogsLines).join("\n");
         truncatedLog +=
@@ -74,9 +76,26 @@ QString truncateLogForMclogs(const QString& logContent)
             "------------------------------------------------------------\n"
             "\n\n\n\n\n\n\n\n\n\n";
         truncatedLog += lines.mid(lines.size() - FinalMclogsLines - 1).join("\n");
-        return truncatedLog;
+        content = truncatedLog;
     }
-    return logContent;
+
+    QByteArray bytes = content.toUtf8();
+    if (bytes.size() > MaxMclogsSizeBytes) {
+        constexpr int halfChunk = 4 * 1024 * 1024;
+        static const char middleNotice[] =
+            "\n\n\n\n\n\n\n\n\n\n"
+            "------------------------------------------------------------\n"
+            "----------------------- Size truncated ---------------------\n"
+            "------------------------------------------------------------\n"
+            "----- Payload exceeded 9 MB - middle portion omitted -------\n"
+            "------------------------------------------------------------\n"
+            "\n\n\n\n\n\n\n\n\n\n";
+        QByteArray head = bytes.left(halfChunk);
+        QByteArray tail = bytes.right(halfChunk);
+        content = QString::fromUtf8(head) + QString::fromLatin1(middleNotice) + QString::fromUtf8(tail);
+    }
+
+    return content;
 }
 
 std::optional<QString> GuiUtil::uploadPaste(const QString& name, const QFileInfo& filePath, QWidget* parentWidget)
@@ -94,6 +113,13 @@ std::optional<QString> GuiUtil::uploadPaste(const QString& name, const QString& 
     if (baseURL.isEmpty())
         baseURL = PasteUpload::PasteTypes[pasteType].defaultBase;
 
+    QString textToUpload = text;
+    anonymizeLog(textToUpload);
+
+    bool isMclogs = (pasteType == PasteUpload::Mclogs || baseURL.contains("mclo.gs"));
+    bool exceedsLineLimit = isMclogs && (textToUpload.count("\n") > MaxMclogsLines);
+    bool exceedsByteLimit = isMclogs && (textToUpload.toUtf8().size() > MaxMclogsSizeBytes);
+
     if (auto url = QUrl(baseURL); url.isValid()) {
         auto response = CustomMessageBox::selectable(parentWidget, QObject::tr("Confirm Upload"),
                                                      QObject::tr("You are about to upload \"%1\" to %2.\n"
@@ -106,31 +132,27 @@ std::optional<QString> GuiUtil::uploadPaste(const QString& name, const QString& 
         if (response != QMessageBox::Yes)
             return {};
 
-        if (baseURL == "https://api.mclo.gs" && text.count("\n") > MaxMclogsLines) {
+        if (exceedsLineLimit || exceedsByteLimit) {
             auto truncateResponse = CustomMessageBox::selectable(
                                         parentWidget, QObject::tr("Confirm Truncation"),
-                                        QObject::tr("The log has %1 lines, exceeding mclo.gs' limit of %2.\n"
-                                                    "The launcher can keep the first %3 and last %4 lines, trimming the middle.\n\n"
-                                                    "If you choose 'No', mclo.gs will only keep the first %2 lines, cutting off "
-                                                    "potentially useful info like crashes at the end.\n\n"
+                                        QObject::tr("The log is very large (%1 lines, %2 MB), exceeding mclo.gs' recommended limit.\n"
+                                                    "The launcher can keep the beginning and end of the log, trimming the middle portion.\n\n"
+                                                    "If you choose 'No', mclo.gs may reject the upload or cut off critical crash details at the end.\n\n"
                                                     "Proceed with truncation?")
-                                            .arg(text.count("\n"))
-                                            .arg(MaxMclogsLines)
-                                            .arg(InitialMclogsLines)
-                                            .arg(FinalMclogsLines),
+                                            .arg(textToUpload.count("\n"))
+                                            .arg(QString::number(textToUpload.toUtf8().size() / (1024.0 * 1024.0), 'f', 1)),
                                         QMessageBox::Warning, QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::No)
                                         ->exec();
 
             if (truncateResponse == QMessageBox::Cancel) {
                 return {};
             }
-            shouldTruncate = truncateResponse == QMessageBox::Yes;
+            shouldTruncate = (truncateResponse == QMessageBox::Yes);
         }
     }
 
-    QString textToUpload = text;
-    if (shouldTruncate) {
-        textToUpload = truncateLogForMclogs(text);
+    if (shouldTruncate || (isMclogs && textToUpload.toUtf8().size() > MaxMclogsSizeBytes)) {
+        textToUpload = truncateLogForMclogs(textToUpload);
     }
 
     auto job = NetJob::Ptr(new NetJob("Log Upload", APPLICATION->network()));

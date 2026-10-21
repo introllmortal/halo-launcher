@@ -7,9 +7,12 @@
 #include <QFileInfo>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScopeGuard>
+#include <QStyle>
 #include <QTextEdit>
 #include <QVBoxLayout>
 
@@ -281,7 +284,42 @@ void CrashAssistantDialog::onUploadLog()
         QMessageBox::information(this, tr("Empty Log"), tr("No game log output is available to upload."));
         return;
     }
-    GuiUtil::uploadPaste(tr("Minecraft Crash Log"), m_rawLog, this);
+
+    if (!m_btnUploadLog) {
+        return;
+    }
+
+    m_btnUploadLog->setEnabled(false);
+    const QString originalText = m_btnUploadLog->text();
+    m_btnUploadLog->setText(tr("Uploading..."));
+
+    const auto guard = qScopeGuard([this] {
+        if (m_btnUploadLog) {
+            m_btnUploadLog->setEnabled(true);
+        }
+    });
+
+    QString diagnosticHeader = QString(
+        "=== Halo Crash Assistant Report ===\n"
+        "Title: %1\n"
+        "Description: %2\n"
+        "Recommended Solution: %3\n"
+    ).arg(m_diagnosis.title, m_diagnosis.description, m_diagnosis.solutionText);
+
+    if (!m_diagnosis.technicalDetails.isEmpty()) {
+        diagnosticHeader += QString("Technical Details:\n%1\n").arg(m_diagnosis.technicalDetails);
+    }
+    diagnosticHeader += "====================================\n\n";
+
+    QString fullLog = diagnosticHeader + m_rawLog;
+
+    auto result = GuiUtil::uploadPaste(tr("Minecraft Crash Log"), fullLog, this);
+
+    if (result.has_value() && !result->isEmpty()) {
+        m_btnUploadLog->setText(tr("Link Copied!"));
+    } else {
+        m_btnUploadLog->setText(originalText);
+    }
 }
 
 void CrashAssistantDialog::onCopyDetails()

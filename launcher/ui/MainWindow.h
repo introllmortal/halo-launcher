@@ -177,6 +177,7 @@ class MainWindow : public QMainWindow {
     void iconUpdated(QString);
 
     void showInstanceContextMenu(const QPoint&);
+    void shareLatestLogMclogs();
 
     void updateMainToolBar();
 
