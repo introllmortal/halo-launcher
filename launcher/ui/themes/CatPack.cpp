@@ -53,10 +53,10 @@ QString BasicCatPack::path() const
     QString cat = QString(":/backgrounds/%1").arg(m_id);
     if (std::abs(now.daysTo(xmas)) <= 4) {
         cat += "-xmas";
-    } else if (std::abs(now.daysTo(halloween)) <= 4) {
-        cat += "-spooky";
-    } else if (std::abs(now.daysTo(birthday)) <= 12) {
+    } else if (now >= birthday && now <= birthday.addDays(2)) {
         cat += "-bday";
+    } else if (std::abs(now.daysTo(halloween)) <= 3) {
+        cat += "-spooky";
     }
     return cat;
 }
