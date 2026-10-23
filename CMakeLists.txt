@@ -184,8 +184,8 @@ set(Launcher_LEGACY_FMLLIBS_BASE_URL "https://files.pineconemc.ru/fmllibs/" CACH
 
 ######## Set version numbers ########
 set(Launcher_VERSION_MAJOR 1)
-set(Launcher_VERSION_MINOR 1)
-set(Launcher_VERSION_PATCH 5)
+set(Launcher_VERSION_MINOR 2)
+set(Launcher_VERSION_PATCH 0)
 
 set(Launcher_VERSION_NAME "${Launcher_VERSION_MAJOR}.${Launcher_VERSION_MINOR}.${Launcher_VERSION_PATCH}")
 set(Launcher_VERSION_NAME4 "${Launcher_VERSION_MAJOR}.${Launcher_VERSION_MINOR}.${Launcher_VERSION_PATCH}.0")
