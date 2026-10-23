@@ -15,6 +15,7 @@
 
 #include "ui/pages/BasePage.h"
 
+#include <QJsonObject>
 #include <QWidget>
 
 namespace Ui {
@@ -186,8 +187,13 @@ class HaloManagedPackPage final : public ManagedPackPage {
         QString name;
         QString changelog;
         QUrl downloadUrl;
+        QJsonObject deltaManifest;
+        QUrl deltaManifestUrl;
+        bool hasDeltaManifest = false;
     };
 
     Task::Ptr m_fetch_job = nullptr;
     QVector<PackVersion> m_versions;
+
+    void executeDeltaSync(const PackVersion& version);
 };

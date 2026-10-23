@@ -10,3 +10,4 @@ launcher/Application.cpp
 launcher/ui/instanceview/InstanceDelegate.cpp
 launcher/ui/themes/ThemeManager.cpp
 launcher/ui/MainWindow.cpp
+launcher/ui/pages/instance/ManagedPackPage.cpp

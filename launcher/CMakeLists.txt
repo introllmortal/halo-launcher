@@ -427,6 +427,8 @@ set(TASKS_SOURCES
     tasks/SequentialTask.cpp
     tasks/MultipleOptionsTask.h
     tasks/MultipleOptionsTask.cpp
+    tasks/DeltaSyncTask.h
+    tasks/DeltaSyncTask.cpp
 )
 
 set(SETTINGS_SOURCES

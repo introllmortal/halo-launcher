@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2022 flowln <flowlnlnln@gmail.com>
+﻿// SPDX-FileCopyrightText: 2022 flowln <flowlnlnln@gmail.com>
 //
 // SPDX-License-Identifier: GPL-3.0-only
 
@@ -21,6 +21,7 @@
 #include "InstanceImportTask.h"
 #include "InstanceList.h"
 #include "InstanceTask.h"
+#include "tasks/DeltaSyncTask.h"
 #include "Json.h"
 #include "Markdown.h"
 #include "StringUtils.h"
@@ -516,6 +517,14 @@ void FlameManagedPackPage::updateFromFile()
 
 void ManagedPackPage::updatePack(const QUrl& url, QString versionID, QString versionName)
 {
+    if (m_inst->isRunning()) {
+        CustomMessageBox::selectable(this, tr("Game Running"),
+                                     tr("Minecraft is currently running. Please close the game before updating."),
+                                     QMessageBox::Warning)
+            ->exec();
+        return;
+    }
+
     QMap<QString, QString> extra_info;
     // NOTE: Don't use 'm_pack.id' here, since we didn't completely parse all the metadata for the pack, including this field.
     extra_info.insert("pack_id", m_inst->getManagedPackID());
@@ -639,6 +648,40 @@ void HaloManagedPackPage::parseManagedPack()
                 }
             }
 
+            if (obj.contains("delta_manifest")) {
+                if (obj["delta_manifest"].isObject()) {
+                    pv.deltaManifest = obj["delta_manifest"].toObject();
+                    pv.hasDeltaManifest = true;
+                } else if (obj["delta_manifest"].isString()) {
+                    pv.deltaManifestUrl = QUrl(obj["delta_manifest"].toString());
+                    pv.hasDeltaManifest = pv.deltaManifestUrl.isValid();
+                }
+            } else if (obj.contains("delta_manifest_url")) {
+                pv.deltaManifestUrl = QUrl(obj["delta_manifest_url"].toString());
+                pv.hasDeltaManifest = pv.deltaManifestUrl.isValid();
+            } else if (obj.contains("deltaManifest")) {
+                if (obj["deltaManifest"].isObject()) {
+                    pv.deltaManifest = obj["deltaManifest"].toObject();
+                    pv.hasDeltaManifest = true;
+                } else if (obj["deltaManifest"].isString()) {
+                    pv.deltaManifestUrl = QUrl(obj["deltaManifest"].toString());
+                    pv.hasDeltaManifest = pv.deltaManifestUrl.isValid();
+                }
+            }
+
+            if (!pv.hasDeltaManifest && obj.contains("assets")) {
+                auto assets = obj["assets"].toArray();
+                for (const auto& a : assets) {
+                    auto aObj = a.toObject();
+                    auto aName = aObj["name"].toString();
+                    if (aName.endsWith("delta_manifest.json", Qt::CaseInsensitive)) {
+                        pv.deltaManifestUrl = QUrl(aObj["browser_download_url"].toString());
+                        pv.hasDeltaManifest = pv.deltaManifestUrl.isValid();
+                        break;
+                    }
+                }
+            }
+
             if (!pv.version.isEmpty() && pv.downloadUrl.isValid()) {
                 m_versions.append(pv);
             }
@@ -692,22 +735,156 @@ void HaloManagedPackPage::suggestVersion()
 
 void HaloManagedPackPage::update()
 {
+    if (m_inst->isRunning()) {
+        CustomMessageBox::selectable(this, tr("Game Running"),
+                                     tr("Minecraft is currently running. Please close the game before updating."),
+                                     QMessageBox::Warning)
+            ->exec();
+        return;
+    }
+
     auto idx = ui->versionsComboBox->currentData().toInt();
     if (m_versions.isEmpty() || idx < 0 || idx >= m_versions.size()) {
         setFailState();
         return;
     }
     const auto& version = m_versions.at(idx);
-    updatePack(version.downloadUrl, version.version, version.version);
+    if (version.hasDeltaManifest) {
+        executeDeltaSync(version);
+    } else {
+        updatePack(version.downloadUrl, version.version, version.version);
+    }
 }
 
 void HaloManagedPackPage::updateFromFile()
 {
+    if (m_inst->isRunning()) {
+        CustomMessageBox::selectable(this, tr("Game Running"),
+                                     tr("Minecraft is currently running. Please close the game before updating."),
+                                     QMessageBox::Warning)
+            ->exec();
+        return;
+    }
+
     auto output = QFileDialog::getOpenFileUrl(this, tr("Choose update file"), QDir::homePath(), tr("Modpack") + " (*.mrpack *.zip)");
     if (output.isEmpty())
         return;
 
     updatePack(output);
+}
+
+void HaloManagedPackPage::executeDeltaSync(const PackVersion& version)
+{
+    ui->updateButton->setEnabled(false);
+
+    QJsonObject manifest = version.deltaManifest;
+    if (manifest.isEmpty() && version.deltaManifestUrl.isValid()) {
+        auto netJob = makeShared<NetJob>(tr("Fetch Delta Manifest"), APPLICATION->network());
+        auto [action, response] = Net::ApiDownload::makeByteArray(version.deltaManifestUrl);
+        netJob->addNetAction(action);
+
+        ProgressDialog fetchDlg(this);
+        fetchDlg.setSkipButton(true, tr("Abort"));
+        fetchDlg.execWithTask(netJob.get());
+
+        if (!netJob->wasSuccessful()) {
+            QString reason = netJob->failReason();
+            if (reason.isEmpty()) {
+                reason = tr("Failed to download delta manifest");
+            }
+            auto res = CustomMessageBox::selectable(
+                this, tr("Delta Update Failed"),
+                tr("Delta update could not be completed (%1).\n\nWould you like to perform a full modpack archive update instead?")
+                    .arg(reason),
+                QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
+                ->exec();
+
+            if (res == QMessageBox::Yes) {
+                updatePack(version.downloadUrl, version.version, version.version);
+            } else {
+                ui->updateButton->setEnabled(true);
+            }
+            return;
+        }
+
+        QJsonParseError parse_error{};
+        QJsonDocument doc = QJsonDocument::fromJson(*response, &parse_error);
+        if (parse_error.error != QJsonParseError::NoError || !doc.isObject()) {
+            auto res = CustomMessageBox::selectable(
+                this, tr("Delta Update Failed"),
+                tr("Delta update could not be completed (%1).\n\nWould you like to perform a full modpack archive update instead?")
+                    .arg(tr("Invalid delta manifest format")),
+                QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
+                ->exec();
+
+            if (res == QMessageBox::Yes) {
+                updatePack(version.downloadUrl, version.version, version.version);
+            } else {
+                ui->updateButton->setEnabled(true);
+            }
+            return;
+        }
+
+        manifest = doc.object();
+    }
+
+    auto deltaTask = new DeltaSyncTask(m_inst, manifest, version.version, this);
+
+    ProgressDialog progressDialog(this);
+    progressDialog.setSkipButton(true, tr("Abort"));
+    progressDialog.execWithTask(deltaTask);
+
+    if (!deltaTask->wasSuccessful()) {
+        QString reason = deltaTask->failReason();
+        if (reason.isEmpty()) {
+            reason = deltaTask->wasAborted() ? tr("Task aborted by user") : tr("Unknown error");
+        }
+        delete deltaTask;
+
+        auto res = CustomMessageBox::selectable(
+            this, tr("Delta Update Failed"),
+            tr("Delta update could not be completed (%1).\n\nWould you like to perform a full modpack archive update instead?")
+                .arg(reason),
+            QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
+            ->exec();
+
+        if (res == QMessageBox::Yes) {
+            updatePack(version.downloadUrl, version.version, version.version);
+        } else {
+            ui->updateButton->setEnabled(true);
+        }
+        return;
+    }
+
+    delete deltaTask;
+
+    CustomMessageBox::selectable(
+        this, tr("Update Successful"),
+        tr("Modpack successfully updated to version %1 via Delta Sync!").arg(version.version),
+        QMessageBox::Information)
+        ->exec();
+
+    // Update UI labels and re-enable update button
+    ui->packVersion->setText(m_inst->getManagedPackVersionName());
+    ui->packOrigin->setText(tr("Website: <a href=%1>%2</a>    |    Pack ID: %3    |    Version ID: %4")
+                                .arg(url(), displayName(), m_inst->getManagedPackID(), m_inst->getManagedPackVersionID()));
+    ui->updateButton->setEnabled(true);
+
+    int currentIdx = ui->versionsComboBox->currentIndex();
+    ui->versionsComboBox->blockSignals(true);
+    ui->versionsComboBox->clear();
+    for (int i = 0; i < m_versions.size(); ++i) {
+        QString name = m_versions[i].name;
+        if (m_versions[i].version == m_inst->getManagedPackVersionName()) {
+            name = tr("%1 (Current)").arg(name);
+        }
+        ui->versionsComboBox->addItem(name, i);
+    }
+    if (currentIdx >= 0 && currentIdx < m_versions.size()) {
+        ui->versionsComboBox->setCurrentIndex(currentIdx);
+    }
+    ui->versionsComboBox->blockSignals(false);
+    suggestVersion();
 }
 
 #include "ManagedPackPage.moc"
