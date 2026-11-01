@@ -211,7 +211,19 @@ static const QHash<QByteArray, const char*> s_ruTranslations = {
     { "MainWindow::Share Latest Log (mclo.gs)",
       "Поделиться последним логом (mclo.gs)" },
     { "MainWindow::Share the latest game log via mclo.gs",
-      "Опубликовать последний лог игры через mclo.gs" }
+      "Опубликовать последний лог игры через mclo.gs" },
+    { "MainWindow::Log Not Found",
+      "Лог не найден" },
+    { "MainWindow::No latest.log was found for \"%1\".",
+      "Файл latest.log не найден для сборки «%1»." },
+    { "MainWindow::Read Error",
+      "Ошибка чтения" },
+    { "MainWindow::Could not open latest.log for reading.",
+      "Не удалось открыть latest.log для чтения." },
+    { "MainWindow::Empty Log",
+      "Пустой лог" },
+    { "MainWindow::The latest.log file is empty.",
+      "Файл latest.log пуст." }
 };
 }  // namespace
 
@@ -226,23 +238,13 @@ bool CrashAssistantTranslator::isRussianLanguage()
         if (APPLICATION->translations()) {
             QString lang = APPLICATION->translations()->selectedLanguage();
             if (!lang.isEmpty()) {
-                if (lang.startsWith("ru", Qt::CaseInsensitive)) {
-                    return true;
-                }
-                if (lang.startsWith("en", Qt::CaseInsensitive)) {
-                    return false;
-                }
+                return lang.startsWith("ru", Qt::CaseInsensitive);
             }
         }
         if (APPLICATION->settings()) {
             QString lang = APPLICATION->settings()->get("Language").toString();
             if (!lang.isEmpty()) {
-                if (lang.startsWith("ru", Qt::CaseInsensitive)) {
-                    return true;
-                }
-                if (lang.startsWith("en", Qt::CaseInsensitive)) {
-                    return false;
-                }
+                return lang.startsWith("ru", Qt::CaseInsensitive);
             }
         }
     }
@@ -255,24 +257,38 @@ QString CrashAssistantTranslator::translate(const char* context, const char* sou
                                             [[maybe_unused]] const char* disambiguation,
                                             [[maybe_unused]] int n) const
 {
-    if (!context || !sourceText || !isRussianLanguage()) {
+    if (!context || !sourceText) {
+        return QString();
+    }
+
+    // Fast filter: only process contexts managed by CrashAssistantTranslator
+    if (context[0] != 'C' && context[0] != 'M') {
         return QString();
     }
 
     QByteArray key = QByteArray(context) + "::" + sourceText;
     auto it = s_ruTranslations.find(key);
-    if (it != s_ruTranslations.end()) {
-        return QString::fromUtf8(it.value());
+    if (it == s_ruTranslations.end()) {
+        return QString();
     }
 
-    return QString();
+    // Only query locale when the key actually matches one of our strings
+    if (!isRussianLanguage()) {
+        return QString();
+    }
+
+    return QString::fromUtf8(it.value());
 }
 
 void CrashAssistantTranslator::install()
 {
-    static CrashAssistantTranslator* s_instance = nullptr;
-    if (!s_instance && QCoreApplication::instance()) {
-        s_instance = new CrashAssistantTranslator(QCoreApplication::instance());
-        QCoreApplication::installTranslator(s_instance);
+    if (!QCoreApplication::instance()) {
+        return;
     }
+    static CrashAssistantTranslator* s_instance = []() {
+        auto* translator = new CrashAssistantTranslator(QCoreApplication::instance());
+        QCoreApplication::installTranslator(translator);
+        return translator;
+    }();
+    Q_UNUSED(s_instance);
 }
