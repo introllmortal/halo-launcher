@@ -19,6 +19,7 @@
 #include "BaseInstance.h"
 #include "FileSystem.h"
 #include "Application.h"
+#include "diagnostics/CrashAssistantTranslator.h"
 #include "diagnostics/GpuSanityChecker.h"
 #include "settings/SettingsObject.h"
 #include "ui/GuiUtil.h"
@@ -32,6 +33,7 @@ CrashAssistantDialog::CrashAssistantDialog(const DiagnosisResult& diagnosis,
       m_instance(instance),
       m_rawLog(rawLog)
 {
+    CrashAssistantTranslator::install();
     setupUi();
 }
 

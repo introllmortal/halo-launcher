@@ -53,6 +53,8 @@ set(CORE_SOURCES
     # Crash Diagnostics
     diagnostics/CrashAnalyzer.h
     diagnostics/CrashAnalyzer.cpp
+    diagnostics/CrashAssistantTranslator.h
+    diagnostics/CrashAssistantTranslator.cpp
     diagnostics/GpuSanityChecker.h
     diagnostics/GpuSanityChecker.cpp
 

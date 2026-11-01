@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "CrashAnalyzer.h"
+#include "CrashAssistantTranslator.h"
 #include "Application.h"
 #include "GpuSanityChecker.h"
 
@@ -15,6 +16,8 @@
 
 DiagnosisResult CrashAnalyzer::analyze(BaseInstance* instance, const QStringList& logLines, const QString& crashReportContent, int exitCode)
 {
+    CrashAssistantTranslator::install();
+
     QString combinedText = logLines.join("\n");
     if (!crashReportContent.isEmpty()) {
         combinedText += "\n--- CRASH REPORT ---\n" + crashReportContent;

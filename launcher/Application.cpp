@@ -63,6 +63,7 @@
 #include "ui/pages/global/ExternalToolsPage.h"
 #include "ui/pages/global/JavaPage.h"
 #include "ui/pages/global/LanguagePage.h"
+#include "diagnostics/CrashAssistantTranslator.h"
 #include "ui/pages/global/LauncherPage.h"
 #include "ui/pages/global/MinecraftPage.h"
 #include "ui/pages/global/ProxyPage.h"
@@ -1037,6 +1038,7 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
         m_translations.reset(new TranslationsModel("translations"));
         m_translations->downloadIndex();
         qInfo() << "Your language is" << m_translations->selectedLanguage();
+        CrashAssistantTranslator::install();
         qInfo() << "<> Translations loaded.";
     }
 
