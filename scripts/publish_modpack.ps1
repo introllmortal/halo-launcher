@@ -145,7 +145,8 @@ $excludedFolders = @(
 )
 $excludedFiles = @(
     "options.txt", "optionsshaders.txt", "servers.dat",
-    "usercache.json", "usernamecache.json", "hotbar.nbt"
+    "usercache.json", "usernamecache.json", "hotbar.nbt",
+    "defaultoptions.journal.json"
 )
 
 Get-ChildItem -Path $srcMinecraft | ForEach-Object {

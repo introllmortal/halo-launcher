@@ -59,10 +59,11 @@ private:
     static DiagnosisResult detectJavaVersionMismatch(const QString& fullText, BaseInstance* instance);
     static DiagnosisResult detectDuplicateMods(const QString& fullText, BaseInstance* instance);
     static DiagnosisResult detectMissingDependency(const QString& fullText, BaseInstance* instance);
-    static DiagnosisResult detectGraphicsDriverCrash(const QString& fullText, int exitCode, BaseInstance* instance);
-    static DiagnosisResult detectModConflict(const QString& fullText, const QString& crashReport, BaseInstance* instance);
     static DiagnosisResult detectCorruptedConfig(const QString& fullText, BaseInstance* instance);
+    static DiagnosisResult detectModConflict(const QString& fullText, const QString& crashReport, BaseInstance* instance);
+    static DiagnosisResult detectGraphicsDriverCrash(const QString& fullText, int exitCode, BaseInstance* instance);
     static DiagnosisResult createFallbackDiagnosis(const QString& fullText, const QString& crashReport, int exitCode);
 
+    static QString extractModIdentifierFromStackTrace(const QString& fullText);
     static QString findModPathByName(BaseInstance* instance, const QString& nameOrModId);
 };

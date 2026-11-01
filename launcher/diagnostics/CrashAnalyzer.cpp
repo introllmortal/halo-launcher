@@ -36,16 +36,16 @@ DiagnosisResult CrashAnalyzer::analyze(BaseInstance* instance, const QStringList
     res = detectMissingDependency(combinedText, instance);
     if (res.category != CrashCategory::Unknown) return res;
 
-    // 5. Check Graphics Driver / OpenGL Failure
-    res = detectGraphicsDriverCrash(combinedText, exitCode, instance);
-    if (res.category != CrashCategory::Unknown) return res;
-
-    // 6. Check Corrupted Configs
+    // 5. Check Corrupted Configs
     res = detectCorruptedConfig(combinedText, instance);
     if (res.category != CrashCategory::Unknown) return res;
 
-    // 7. Check Mod Conflict / Mixin Error
+    // 6. Check Mod Conflict / Mixin Error / Mod Exceptions
     res = detectModConflict(combinedText, crashReportContent, instance);
+    if (res.category != CrashCategory::Unknown) return res;
+
+    // 7. Check Graphics Driver / OpenGL Failure (Strict validation)
+    res = detectGraphicsDriverCrash(combinedText, exitCode, instance);
     if (res.category != CrashCategory::Unknown) return res;
 
     // 8. Fallback for unknown / generic crashes
@@ -192,131 +192,70 @@ DiagnosisResult CrashAnalyzer::detectDuplicateMods(const QString& fullText, Base
 DiagnosisResult CrashAnalyzer::detectMissingDependency(const QString& fullText, BaseInstance* instance)
 {
     DiagnosisResult res;
-    static const QRegularExpression depPattern(R"(requires\s+(?:version\s+[^\n\r]+of\s+)?mod\s+'([^']+)'|Mod\s+'([^']+)'[^\n\r]*requires\s+'([^']+)'|ModLoadingException:\s*Mod\s+(\S+)\s+requires\s+(\S+)|Could\s+not\s+find\s+required\s+mod:\s*'([^']+)'|Missing\s+or\s+unsupported\s+mandatory\s+dependencies:\s*([^\n\r]+))", QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression depPattern(
+        R"(requires\s+(?:version\s+[^\n\r]+of\s+)?mod\s+'([^']+)'|Mod\s+'([^']+)'[^\n\r]*requires\s+(?:version\s+[^\n\r]+of\s+)?'([^']+)'|ModLoadingException:\s*Mod\s+(\S+)\s+requires\s+(\S+)|Could\s+not\s+find\s+required\s+mod:\s*'([^']+)'|Missing\s+or\s+unsupported\s+mandatory\s+dependencies:\s*[\r\n\s]*Mod\s+ID:\s*'([^']+)',\s*Requested\s+by:\s*'([^']+)'|Missing\s+or\s+unsupported\s+mandatory\s+dependencies:\s*([^\n\r]+)|Incompatible\s+mod\s+set\s+found![^\n\r]*[\r\n\s]*-\s*Mod\s+'([^']+)'[^\n\r]*requires\s+([^\n\r]+))",
+        QRegularExpression::CaseInsensitiveOption
+    );
     auto match = depPattern.match(fullText);
 
-    if (!match.hasMatch() && !fullText.contains("Missing mandatory dependencies", Qt::CaseInsensitive)) {
+    if (!match.hasMatch() && !fullText.contains("Missing mandatory dependencies", Qt::CaseInsensitive) &&
+        !fullText.contains("Incompatible mod set found!", Qt::CaseInsensitive)) {
         return res;
     }
 
     QString dependentMod;
     QString requiredMod;
 
-    if (!match.captured(2).isEmpty() && !match.captured(3).isEmpty()) {
-        dependentMod = match.captured(2);
-        requiredMod = match.captured(3);
-    } else if (!match.captured(4).isEmpty() && !match.captured(5).isEmpty()) {
-        dependentMod = match.captured(4);
-        requiredMod = match.captured(5);
-    } else if (!match.captured(1).isEmpty()) {
-        requiredMod = match.captured(1);
-    } else if (!match.captured(6).isEmpty()) {
-        requiredMod = match.captured(6);
+    if (match.hasMatch()) {
+        if (!match.captured(2).isEmpty() && !match.captured(3).isEmpty()) {
+            dependentMod = match.captured(2);
+            requiredMod = match.captured(3);
+        } else if (!match.captured(4).isEmpty() && !match.captured(5).isEmpty()) {
+            dependentMod = match.captured(4);
+            requiredMod = match.captured(5);
+        } else if (!match.captured(7).isEmpty() && !match.captured(8).isEmpty()) {
+            requiredMod = match.captured(7);
+            dependentMod = match.captured(8);
+        } else if (!match.captured(10).isEmpty() && !match.captured(11).isEmpty()) {
+            dependentMod = match.captured(10);
+            requiredMod = match.captured(11);
+        } else if (!match.captured(1).isEmpty()) {
+            requiredMod = match.captured(1);
+        } else if (!match.captured(6).isEmpty()) {
+            requiredMod = match.captured(6);
+        } else if (!match.captured(9).isEmpty()) {
+            requiredMod = match.captured(9);
+        }
     }
 
     res.category = CrashCategory::MissingDependency;
-    res.fixAction = RecommendedFix::None;
+    res.fixAction = RecommendedFix::UploadLog;
 
     res.title = QCoreApplication::translate("CrashAnalyzer", "Missing Required Mod (Dependency)");
     if (!dependentMod.isEmpty() && !requiredMod.isEmpty()) {
         res.description = QCoreApplication::translate("CrashAnalyzer",
             "Mod '%1' requires '%2' to be installed, but it is missing or incompatible.")
             .arg(dependentMod, requiredMod);
+        res.solutionText = QCoreApplication::translate("CrashAnalyzer",
+            "Install the required mod ('%1') into your mods folder or update the modpack.")
+            .arg(requiredMod);
     } else if (!requiredMod.isEmpty()) {
         res.description = QCoreApplication::translate("CrashAnalyzer",
             "The mod '%1' is required but is missing or incompatible.")
+            .arg(requiredMod);
+        res.solutionText = QCoreApplication::translate("CrashAnalyzer",
+            "Install '%1' into your mods folder or update the modpack.")
             .arg(requiredMod);
     } else {
         res.description = QCoreApplication::translate("CrashAnalyzer",
             "One or more mods are missing their mandatory library dependencies:\n%1")
             .arg(match.hasMatch() ? match.captured(0) : "Missing mandatory dependencies");
-    }
-
-    res.solutionText = QCoreApplication::translate("CrashAnalyzer",
-        "Install the missing dependency mod into the mods folder or update the modpack.");
-
-    res.technicalDetails = match.captured(0);
-
-    return res;
-}
-
-DiagnosisResult CrashAnalyzer::detectGraphicsDriverCrash(const QString& fullText, int exitCode, BaseInstance* instance)
-{
-    DiagnosisResult res;
-    bool isGpuCrash = false;
-    QString reason;
-
-    if (fullText.contains("GLFW error 65542", Qt::CaseInsensitive) || fullText.contains("WGL: The driver does not appear to support OpenGL", Qt::CaseInsensitive)) {
-        isGpuCrash = true;
-        reason = "GLFW error 65542 (Missing OpenGL acceleration)";
-    } else if (fullText.contains("Pixel format not accelerated", Qt::CaseInsensitive)) {
-        isGpuCrash = true;
-        reason = "Pixel format not accelerated";
-    } else if (fullText.contains("nvoglv64.dll", Qt::CaseInsensitive) || fullText.contains("atio6axx.dll", Qt::CaseInsensitive) || fullText.contains("ig9ic64.dll", Qt::CaseInsensitive) || fullText.contains("ig7ic64.dll", Qt::CaseInsensitive) || fullText.contains("ig4icd64.dll", Qt::CaseInsensitive)) {
-        isGpuCrash = true;
-        reason = "Graphics driver crashed in native GPU DLL";
-    } else if (fullText.contains("net.irisshaders.iris", Qt::CaseInsensitive) && (fullText.contains("Shader compilation failed", Qt::CaseInsensitive) || fullText.contains("Program linking failed", Qt::CaseInsensitive) || fullText.contains("OpenGL", Qt::CaseInsensitive))) {
-        isGpuCrash = true;
-        reason = "Iris shader pipeline crash";
-    } else if (fullText.contains("me.jellysquid.mods.sodium", Qt::CaseInsensitive) && fullText.contains("OpenGL", Qt::CaseInsensitive)) {
-        isGpuCrash = true;
-        reason = "Sodium OpenGL pipeline crash";
-    } else if (fullText.contains("org.embeddedt.embeddium", Qt::CaseInsensitive) && fullText.contains("OpenGL", Qt::CaseInsensitive)) {
-        isGpuCrash = true;
-        reason = "Embeddium OpenGL pipeline crash";
-    } else if (fullText.contains("org.lwjgl.opengl.OpenGLException", Qt::CaseInsensitive) || fullText.contains("GL_OUT_OF_MEMORY", Qt::CaseInsensitive)) {
-        isGpuCrash = true;
-        reason = "OpenGL Exception / Out of GPU memory";
-    }
-
-    if (!isGpuCrash) return res;
-
-    res.category = CrashCategory::GraphicsDriver;
-
-    QString javaPath;
-    if (instance && instance->settings()) {
-        if (instance->settings()->get("OverrideJavaLocation").toBool()) {
-            javaPath = instance->settings()->get("JavaPath").toString();
-        }
-    }
-    if (javaPath.isEmpty()) {
-        javaPath = APPLICATION->settings()->get("JavaPath").toString();
-    }
-
-    if (GpuSanityChecker::isDualGpu() && !GpuSanityChecker::isHighPerformanceEnforced(javaPath)) {
-        res.fixAction = RecommendedFix::AssignDedicatedGpu;
-        QString dgpu = GpuSanityChecker::discreteGpuNames().join(", ");
-        QString igpu = GpuSanityChecker::integratedGpuNames().join(", ");
-
-        res.title = QCoreApplication::translate("CrashAnalyzer", "Hybrid GPU Detected (Integrated Graphics in Use)");
-        res.description = QCoreApplication::translate("CrashAnalyzer",
-            "Minecraft failed to communicate with your graphics processor (%1).\n"
-            "Your system has hybrid graphics: dedicated (%2) and integrated (%3).\n"
-            "The game appears to be running on the integrated graphics card instead of the dedicated GPU.")
-            .arg(reason, dgpu.isEmpty() ? "dGPU" : dgpu, igpu.isEmpty() ? "iGPU" : igpu);
-
         res.solutionText = QCoreApplication::translate("CrashAnalyzer",
-            "Click 'Enforce Dedicated GPU' below to register high-performance GPU preference for Java in Windows, then relaunch Minecraft.");
-
-        res.actionButtonText = QCoreApplication::translate("CrashAnalyzer", "Enforce Dedicated GPU");
-        res.technicalDetails = QString("GPU Reason: %1\nDiscrete GPU: %2\nIntegrated GPU: %3\nExit Code: %4")
-            .arg(reason, dgpu, igpu).arg(exitCode);
-
-        return res;
+            "Install the missing dependency mod into the mods folder or update the modpack.");
     }
 
-    res.fixAction = RecommendedFix::DisableShaders;
-    res.title = QCoreApplication::translate("CrashAnalyzer", "Graphics Driver / OpenGL Error");
-    res.description = QCoreApplication::translate("CrashAnalyzer",
-        "Minecraft failed to communicate with your graphics card (%1).\n"
-        "This commonly happens if graphics drivers are outdated, OpenGL is unsupported, or shaders are corrupted.")
-        .arg(reason);
-
-    res.solutionText = QCoreApplication::translate("CrashAnalyzer",
-        "Update your graphics card drivers (NVIDIA/AMD/Intel) and disable active shaders.");
-
-    res.actionButtonText = QCoreApplication::translate("CrashAnalyzer", "Disable Shaders");
-    res.technicalDetails = QString("GPU Error: %1\nExit Code: %2").arg(reason).arg(exitCode);
+    res.actionButtonText = QCoreApplication::translate("CrashAnalyzer", "Upload Log to mclo.gs");
+    res.technicalDetails = match.hasMatch() ? match.captured(0) : "Missing mandatory dependencies";
 
     return res;
 }
@@ -324,13 +263,19 @@ DiagnosisResult CrashAnalyzer::detectGraphicsDriverCrash(const QString& fullText
 DiagnosisResult CrashAnalyzer::detectCorruptedConfig(const QString& fullText, BaseInstance* instance)
 {
     DiagnosisResult res;
-    static const QRegularExpression cfgPattern(R"(ParsingException:[^\n\r]*in\s+([^\s,:]+\.toml)|Failed\s+to\s+parse\s+config\s+file:\s+([^\n\r]+))", QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression cfgPattern(
+        R"(ParsingException:[^\n\r]*in\s+([^\s,:]+\.toml)|Failed\s+to\s+parse\s+config\s+file:\s+([^\n\r]+)|Exception\s+reading\s+([^\s,:]+\.(?:toml|json|json5)))",
+        QRegularExpression::CaseInsensitiveOption
+    );
     auto match = cfgPattern.match(fullText);
 
     if (!match.hasMatch()) return res;
 
-    QString cfgName = match.captured(1).isEmpty() ? match.captured(2) : match.captured(1);
-    cfgName = cfgName.trimmed();
+    QString cfgName;
+    if (!match.captured(1).isEmpty()) cfgName = match.captured(1);
+    else if (!match.captured(2).isEmpty()) cfgName = match.captured(2);
+    else cfgName = match.captured(3);
+    cfgName = QFileInfo(cfgName.trimmed()).fileName();
 
     QString cfgPath;
     if (instance) {
@@ -364,34 +309,55 @@ DiagnosisResult CrashAnalyzer::detectModConflict(const QString& fullText, const 
 {
     DiagnosisResult res;
 
-    // Check Forge / NeoForge "Suspected Mods:" section
-    static const QRegularExpression suspectedPattern(R"(Suspected\s+Mods?:\s*(?:None|[\r\n]+\s*([^\r\n,]+)|([^\r\n,]+)))", QRegularExpression::CaseInsensitiveOption);
+    // 1. Check Forge / NeoForge "Suspected Mods:" section
+    static const QRegularExpression suspectedPattern(
+        R"(Suspected\s+Mods?:\s*(?:None|[\r\n]+\s*([^\r\n,]+)|([^\r\n,]+)))",
+        QRegularExpression::CaseInsensitiveOption
+    );
     auto match = suspectedPattern.match(fullText);
 
-    // Check NeoForge / FML ModLoadingException
-    static const QRegularExpression fmlPattern(R"(ModLoadingException:\s*Mod\s+['"]?([a-zA-Z0-9_\-]+)['"]?\s+failed\s+to\s+load|Failed\s+to\s+load\s+mod:\s*['"]?([a-zA-Z0-9_\-]+)['"]?|ModIdList:\s*\[([a-zA-Z0-9_\-]+)\])", QRegularExpression::CaseInsensitiveOption);
+    // 2. Check NeoForge / FML ModLoadingException and early loading failures
+    static const QRegularExpression fmlPattern(
+        R"(ModLoadingException:\s*Mod\s+['"]?([a-zA-Z0-9_\-]+)['"]?\s+failed\s+to\s+load|Failed\s+to\s+load\s+mod:\s*['"]?([a-zA-Z0-9_\-]+)['"]?|ModIdList:\s*\[([a-zA-Z0-9_\-]+)\]|Error\s+during\s+pre-loading\s+phase:\s*([^\n\r]+))",
+        QRegularExpression::CaseInsensitiveOption
+    );
     auto fmlMatch = fmlPattern.match(fullText);
 
-    // Check Mixin application errors
-    static const QRegularExpression mixinPattern(R"(Critical\s+injection\s+failure:\s*Callback\s*(\S+)\s+in\s+(\S+)|MixinApplyError:\s*Mixin\s+\[([^\]]+)\]|merged\s+from\s+(\S+\.mixins\.json)|MixinTransformerError:\s*An\s+unexpected\s+critical\s+error\s+was\s+encountered\s+in\s+(\S+))", QRegularExpression::CaseInsensitiveOption);
+    // 3. Check Mixin application and transformer errors
+    static const QRegularExpression mixinPattern(
+        R"(Critical\s+injection\s+failure:\s*Callback\s*(\S+)\s+in\s+(\S+)|MixinApplyError:\s*Mixin\s+\[([^\]]+)\]\s+from\s+phase\s+[^\s]+\s+in\s+config\s+\[([^\]]+)\]|merged\s+from\s+(\S+\.mixins?\.json)|MixinTransformerError:\s*An\s+unexpected\s+critical\s+error\s+was\s+encountered\s+in\s+(\S+)|Error\s+initialising\s+mixin\s+config\s+([^\s,]+)|ClassMetadataNotFoundException:\s*(\S+))",
+        QRegularExpression::CaseInsensitiveOption
+    );
     auto mixinMatch = mixinPattern.match(fullText);
 
     QString modIdentifier;
+
     if (match.hasMatch()) {
         QString cand = match.captured(1).isEmpty() ? match.captured(2).trimmed() : match.captured(1).trimmed();
         if (cand.compare("None", Qt::CaseInsensitive) != 0 && !cand.isEmpty()) {
             modIdentifier = cand;
         }
     }
+
     if (modIdentifier.isEmpty() && fmlMatch.hasMatch()) {
         if (!fmlMatch.captured(1).isEmpty()) modIdentifier = fmlMatch.captured(1);
         else if (!fmlMatch.captured(2).isEmpty()) modIdentifier = fmlMatch.captured(2);
-        else modIdentifier = fmlMatch.captured(3);
+        else if (!fmlMatch.captured(3).isEmpty()) modIdentifier = fmlMatch.captured(3);
+        else modIdentifier = fmlMatch.captured(4);
     }
+
     if (modIdentifier.isEmpty() && mixinMatch.hasMatch()) {
-        if (!mixinMatch.captured(4).isEmpty()) modIdentifier = mixinMatch.captured(4);
-        else if (!mixinMatch.captured(5).isEmpty()) modIdentifier = mixinMatch.captured(5);
-        else modIdentifier = mixinMatch.captured(3).isEmpty() ? mixinMatch.captured(2) : mixinMatch.captured(3);
+        for (int i = mixinMatch.lastCapturedIndex(); i >= 1; --i) {
+            if (!mixinMatch.captured(i).isEmpty()) {
+                modIdentifier = mixinMatch.captured(i);
+                break;
+            }
+        }
+    }
+
+    // 4. If no loader pattern matched, inspect stack trace for third-party mod frames
+    if (modIdentifier.isEmpty()) {
+        modIdentifier = extractModIdentifierFromStackTrace(fullText);
     }
 
     if (modIdentifier.isEmpty()) {
@@ -424,8 +390,149 @@ DiagnosisResult CrashAnalyzer::detectModConflict(const QString& fullText, const 
         res.technicalDetails = fmlMatch.captured(0);
     } else if (mixinMatch.hasMatch()) {
         res.technicalDetails = mixinMatch.captured(0);
+    } else {
+        res.technicalDetails = modIdentifier;
     }
 
+    return res;
+}
+
+DiagnosisResult CrashAnalyzer::detectGraphicsDriverCrash(const QString& fullText, int exitCode, BaseInstance* instance)
+{
+    DiagnosisResult res;
+    bool isGpuCrash = false;
+    QString reason;
+    bool isNativeDriverDll = false;
+    bool isNvidiaDll = false;
+    bool isIntelDll = false;
+
+    // 1. Explicit GLFW / WGL OpenGL acceleration errors
+    if (fullText.contains("GLFW error 65542", Qt::CaseInsensitive) ||
+        fullText.contains("WGL: The driver does not appear to support OpenGL", Qt::CaseInsensitive)) {
+        isGpuCrash = true;
+        reason = "GLFW error 65542 (Missing OpenGL acceleration)";
+    } else if (fullText.contains("Pixel format not accelerated", Qt::CaseInsensitive)) {
+        isGpuCrash = true;
+        reason = "Pixel format not accelerated";
+    }
+    // 2. HotSpot / native crash dump (# Problematic frame: or EXCEPTION_ACCESS_VIOLATION in driver DLL)
+    else if (fullText.contains("# Problematic frame:", Qt::CaseInsensitive) ||
+             fullText.contains("EXCEPTION_ACCESS_VIOLATION", Qt::CaseInsensitive)) {
+        static const QRegularExpression driverDllPattern(
+            R"((?:#\s*Problematic\s+frame:[\s\S]{0,100}?(?:#\s*[A-Z]\s+\[|\b)|(?:EXCEPTION_ACCESS_VIOLATION[\s\S]{0,200}?\b))([a-zA-Z0-9_\-]+\.dll))",
+            QRegularExpression::CaseInsensitiveOption
+        );
+        auto match = driverDllPattern.match(fullText);
+        QString dll = match.hasMatch() ? match.captured(1).toLower() : QString();
+
+        if (dll.contains("nvoglv64") || (fullText.contains("nvoglv64.dll", Qt::CaseInsensitive) && fullText.contains("# Problematic frame:", Qt::CaseInsensitive))) {
+            isGpuCrash = true;
+            isNativeDriverDll = true;
+            isNvidiaDll = true;
+            reason = "NVIDIA OpenGL driver crashed (nvoglv64.dll)";
+        } else if (dll.contains("atio6axx") || (fullText.contains("atio6axx.dll", Qt::CaseInsensitive) && fullText.contains("# Problematic frame:", Qt::CaseInsensitive))) {
+            isGpuCrash = true;
+            isNativeDriverDll = true;
+            reason = "AMD OpenGL driver crashed (atio6axx.dll)";
+        } else if (dll.contains("ig9ic64") || dll.contains("ig7ic64") || dll.contains("ig4icd64") ||
+                   ((fullText.contains("ig9ic64.dll", Qt::CaseInsensitive) || fullText.contains("ig7ic64.dll", Qt::CaseInsensitive) || fullText.contains("ig4icd64.dll", Qt::CaseInsensitive)) &&
+                   fullText.contains("# Problematic frame:", Qt::CaseInsensitive))) {
+            isGpuCrash = true;
+            isNativeDriverDll = true;
+            isIntelDll = true;
+            reason = "Intel OpenGL driver crashed (" + (dll.isEmpty() ? "Intel HD Graphics DLL" : dll) + ")";
+        }
+    }
+    // 3. OpenGLException / Out of Video Memory
+    else if (fullText.contains("org.lwjgl.opengl.OpenGLException", Qt::CaseInsensitive) ||
+             fullText.contains("GL_OUT_OF_MEMORY", Qt::CaseInsensitive) ||
+             fullText.contains("OpenGLException: Out of memory", Qt::CaseInsensitive)) {
+        isGpuCrash = true;
+        reason = "OpenGL Exception: Out of GPU Video Memory (VRAM)";
+    }
+    // 4. Shader compilation failure (strictly with explicit compiler error message)
+    else if (fullText.contains("Shader compilation failed", Qt::CaseInsensitive) ||
+             fullText.contains("Failed to compile shader", Qt::CaseInsensitive) ||
+             fullText.contains("Program linking failed", Qt::CaseInsensitive) ||
+             fullText.contains("Failed to compile fragment shader", Qt::CaseInsensitive) ||
+             fullText.contains("Failed to compile vertex shader", Qt::CaseInsensitive)) {
+        isGpuCrash = true;
+        reason = "Shader compilation or linking failure";
+    }
+
+    if (!isGpuCrash) return res;
+
+    res.category = CrashCategory::GraphicsDriver;
+
+    QString javaPath;
+    if (instance && instance->settings()) {
+        if (instance->settings()->get("OverrideJavaLocation").toBool()) {
+            javaPath = instance->settings()->get("JavaPath").toString();
+        }
+    }
+    if (javaPath.isEmpty() && APPLICATION && APPLICATION->settings()) {
+        javaPath = APPLICATION->settings()->get("JavaPath").toString();
+    }
+
+    bool dualGpu = GpuSanityChecker::isDualGpu();
+    bool highPerfEnforced = GpuSanityChecker::isHighPerformanceEnforced(javaPath);
+
+    // If dual GPU is present AND Minecraft ran on / crashed in iGPU, or missing acceleration, suggest AssignDedicatedGpu
+    if (dualGpu && !highPerfEnforced && (!isNativeDriverDll || isIntelDll)) {
+        res.fixAction = RecommendedFix::AssignDedicatedGpu;
+        QString dgpu = GpuSanityChecker::discreteGpuNames().join(", ");
+        QString igpu = GpuSanityChecker::integratedGpuNames().join(", ");
+
+        res.title = QCoreApplication::translate("CrashAnalyzer", "Hybrid GPU Detected (Integrated Graphics in Use)");
+        res.description = QCoreApplication::translate("CrashAnalyzer",
+            "Minecraft failed to communicate with your graphics processor (%1).\n"
+            "Your system has hybrid graphics: dedicated (%2) and integrated (%3).\n"
+            "The game appears to be running on the integrated graphics card instead of the dedicated GPU.")
+            .arg(reason, dgpu.isEmpty() ? "dGPU" : dgpu, igpu.isEmpty() ? "iGPU" : igpu);
+
+        res.solutionText = QCoreApplication::translate("CrashAnalyzer",
+            "Click 'Enforce Dedicated GPU' below to register high-performance GPU preference for Java in Windows, then relaunch Minecraft.");
+
+        res.actionButtonText = QCoreApplication::translate("CrashAnalyzer", "Enforce Dedicated GPU");
+        res.technicalDetails = QString("GPU Reason: %1\nDiscrete GPU: %2\nIntegrated GPU: %3\nExit Code: %4")
+            .arg(reason, dgpu, igpu).arg(exitCode);
+
+        return res;
+    }
+
+    // If shader compilation failed, recommend disabling shaders
+    if (reason.contains("Shader", Qt::CaseInsensitive)) {
+        res.fixAction = RecommendedFix::DisableShaders;
+        res.title = QCoreApplication::translate("CrashAnalyzer", "Shader Compilation Failure");
+        res.description = QCoreApplication::translate("CrashAnalyzer",
+            "Minecraft crashed while compiling or linking visual shaders (%1).\n"
+            "This usually happens due to syntax errors or hardware incompatibility in active shader packs.")
+            .arg(reason);
+        res.solutionText = QCoreApplication::translate("CrashAnalyzer",
+            "Disable active shader packs by clicking 'Disable Shaders' below, or update Iris/Oculus.");
+        res.actionButtonText = QCoreApplication::translate("CrashAnalyzer", "Disable Shaders");
+        res.technicalDetails = QString("Shader Error: %1\nExit Code: %2").arg(reason).arg(exitCode);
+        return res;
+    }
+
+    // Otherwise, native driver or OpenGL crash
+    res.fixAction = RecommendedFix::None;
+    res.title = QCoreApplication::translate("CrashAnalyzer", "Graphics Driver Error");
+    if (isNvidiaDll) {
+        res.description = QCoreApplication::translate("CrashAnalyzer",
+            "Minecraft crashed inside the NVIDIA graphics driver (%1).\n"
+            "This indicates a driver crash or incompatibility with the installed NVIDIA driver version.")
+            .arg(reason);
+        res.solutionText = QCoreApplication::translate("CrashAnalyzer",
+            "Perform a clean reinstall or update your NVIDIA GeForce drivers from nvidia.com.");
+    } else {
+        res.description = QCoreApplication::translate("CrashAnalyzer",
+            "Minecraft crashed due to a graphics driver or OpenGL error (%1).")
+            .arg(reason);
+        res.solutionText = QCoreApplication::translate("CrashAnalyzer",
+            "Update your graphics card drivers and make sure your GPU supports OpenGL 4.5+.");
+    }
+    res.technicalDetails = QString("GPU Error: %1\nExit Code: %2").arg(reason).arg(exitCode);
     return res;
 }
 
@@ -471,28 +578,69 @@ DiagnosisResult CrashAnalyzer::createFallbackDiagnosis(const QString& fullText, 
     return res;
 }
 
+QString CrashAnalyzer::extractModIdentifierFromStackTrace(const QString& fullText)
+{
+    int causedByIdx = fullText.lastIndexOf("Caused by:");
+    int startPos = (causedByIdx != -1) ? causedByIdx : fullText.indexOf("Exception in thread ");
+    if (startPos == -1) {
+        startPos = fullText.indexOf("---- Minecraft Crash Report ----");
+    }
+    if (startPos == -1) {
+        startPos = 0;
+    }
+
+    QString textSlice = fullText.mid(startPos, 4000);
+    static const QRegularExpression stackFramePattern(R"(\tat\s+([a-zA-Z0-9_.]+)\.([a-zA-Z0-9_<>$]+)\()");
+    auto iter = stackFramePattern.globalMatch(textSlice);
+
+    while (iter.hasNext()) {
+        auto m = iter.next();
+        QString fullClass = m.captured(1);
+
+        // Skip JDK, Java, standard Minecraft, and loader internals
+        if (fullClass.startsWith("java.") || fullClass.startsWith("javax.") ||
+            fullClass.startsWith("sun.") || fullClass.startsWith("jdk.") ||
+            fullClass.startsWith("net.minecraft.") || fullClass.startsWith("com.mojang.") ||
+            fullClass.startsWith("org.spongepowered.asm.mixin.") ||
+            fullClass.startsWith("cpw.mods.modlauncher.") ||
+            fullClass.startsWith("net.neoforged.fml.") ||
+            fullClass.startsWith("net.minecraftforge.fml.")) {
+            continue;
+        }
+
+        QStringList parts = fullClass.split('.');
+        if (parts.size() >= 3) {
+            if (parts.size() >= 4 && parts[0] == "dev" && parts[2] == "mods") {
+                return parts[3];
+            }
+            if (parts.size() >= 3 && (parts[0] == "com" || parts[0] == "org" || parts[0] == "net" || parts[0] == "io")) {
+                return parts[2];
+            }
+            return parts.value(parts.size() - 2);
+        }
+    }
+
+    return QString();
+}
+
 QString CrashAnalyzer::findModPathByName(BaseInstance* instance, const QString& nameOrModId)
 {
     if (!instance || nameOrModId.isEmpty()) return QString();
 
     QString cleanQuery = nameOrModId;
-    // If it's a mixin config reference like sodium.mixins.json:features.buffer...
-    int mixinIdx = cleanQuery.indexOf(".mixins.json", 0, Qt::CaseInsensitive);
+    int mixinIdx = cleanQuery.indexOf(".mixins", 0, Qt::CaseInsensitive);
     if (mixinIdx > 0) {
         cleanQuery = cleanQuery.left(mixinIdx).trimmed();
     }
-    // If it has colon e.g. modid:Class
     int colonIdx = cleanQuery.indexOf(':');
     if (colonIdx > 0) {
         cleanQuery = cleanQuery.left(colonIdx).trimmed();
     }
-    // Strip versions or parentheses like ModName (modid)
     int parenIdx = cleanQuery.indexOf('(');
     if (parenIdx > 0) {
         cleanQuery = cleanQuery.left(parenIdx).trimmed();
     }
-    // Remove punctuation
-    cleanQuery.remove(':').remove('\'').remove('"');
+    cleanQuery.remove(':').remove('\'').remove('"').remove('`');
     cleanQuery = cleanQuery.trimmed();
     if (cleanQuery.isEmpty()) {
         return QString();
@@ -507,14 +655,35 @@ QString CrashAnalyzer::findModPathByName(BaseInstance* instance, const QString& 
     for (const auto& folder : searchFolders) {
         if (!QDir(folder).exists()) continue;
         QDir dir(folder);
-        QStringList files = dir.entryList({ "*.jar" }, QDir::Files);
+        QStringList files = dir.entryList({ "*.jar", "*.jar.disabled" }, QDir::Files);
+
+        // 1. Direct match
+        for (const auto& file : files) {
+            QString base = file;
+            if (base.endsWith(".disabled")) base.chop(9);
+            if (base.endsWith(".jar")) base.chop(4);
+
+            if (base.compare(cleanQuery, Qt::CaseInsensitive) == 0) {
+                return dir.absoluteFilePath(file);
+            }
+        }
+
+        // 2. Prefix match
+        for (const auto& file : files) {
+            if (file.startsWith(cleanQuery + "-", Qt::CaseInsensitive) ||
+                file.startsWith(cleanQuery + "_", Qt::CaseInsensitive)) {
+                return dir.absoluteFilePath(file);
+            }
+        }
+
+        // 3. Substring match
         for (const auto& file : files) {
             if (file.contains(cleanQuery, Qt::CaseInsensitive)) {
                 return dir.absoluteFilePath(file);
             }
         }
 
-        // Normalize underscores and hyphens
+        // 4. Normalized match (hyphens and underscores)
         QString normQuery = cleanQuery;
         normQuery.replace('_', '-');
         for (const auto& file : files) {
