@@ -144,8 +144,10 @@ void LauncherPartLaunch::executeTask()
         }
         emit logLine("Wrapper command is:\n" + wrapperCommandStr + "\n\n", MessageLevel::Launcher);
         args.prepend(javaPath);
+        m_processStartTime = QDateTime::currentMSecsSinceEpoch();
         m_process.start(wrapperCommand, wrapperArgs + args);
     } else {
+        m_processStartTime = QDateTime::currentMSecsSinceEpoch();
         m_process.start(javaPath, args);
     }
 
@@ -190,6 +192,56 @@ void LauncherPartLaunch::on_state(LoggedProcess::State state)
                 emitFailed(tr("Game crashed with exit code %1.").arg(exitCode));
                 return;
             }
+
+            // Check if game produced a crash report or log indicates fatal loading failure despite exit code 0
+            bool crashedWithZeroExit = false;
+            QString crashReportsDir = FS::PathCombine(instance->gameRoot(), "crash-reports");
+            QDir dir(crashReportsDir);
+            qint64 now = QDateTime::currentMSecsSinceEpoch();
+            qint64 launchTime = m_processStartTime > 0 ? m_processStartTime : instance->lastLaunch();
+
+            if (dir.exists()) {
+                auto reports = dir.entryInfoList({ "crash-*.txt" }, QDir::Files, QDir::Time);
+                if (!reports.isEmpty()) {
+                    const auto& latestInfo = reports.first();
+                    qint64 reportTime = latestInfo.lastModified().toMSecsSinceEpoch();
+                    // Crash report must have been created during this session (after launch time - 5s and within last 60s)
+                    if (launchTime > 0 && reportTime >= launchTime - 5000 && reportTime >= now - 60000) {
+                        crashedWithZeroExit = true;
+                    }
+                }
+            }
+
+            if (!crashedWithZeroExit && m_parent && m_parent->getLogModel()) {
+                QString logContent = m_parent->getLogModel()->toPlainText();
+                static const QStringList crashIndicators = {
+                    "Crash report saved to",
+                    "---- Minecraft Crash Report ----",
+                    "net.neoforged.neoforge.logging.CrashReportExtender$ModLoadingCrashException",
+                    "Mod loading failures have occurred",
+                    "Cowardly refusing to send event",
+                    "Missing or unsupported mandatory dependencies:",
+                    "Unsupported installed optional dependencies:",
+                    "Conflicts between mods:",
+                    "Incompatibilities between mods:",
+                    "ModLoadingException:",
+                    "Incompatible mod set found!",
+                    "DuplicateModsFoundException"
+                };
+                for (const auto& indicator : crashIndicators) {
+                    if (logContent.contains(indicator, Qt::CaseInsensitive)) {
+                        crashedWithZeroExit = true;
+                        break;
+                    }
+                }
+            }
+
+            if (crashedWithZeroExit) {
+                m_parent->instance()->setCrashed(true);
+                emitFailed(tr("Game crashed with exit code 0 (Mod loading or initialization failure)."));
+                return;
+            }
+
             // FIXME: make this work again
             //  m_postlaunchprocess.processEnvironment().insert("INST_EXITCODE", QString(exitCode));
             //  run post-exit

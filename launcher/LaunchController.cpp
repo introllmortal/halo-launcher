@@ -438,6 +438,7 @@ void LaunchController::launchInstance()
                                  .arg(BuildConfig.LAUNCHER_DISPLAYNAME, BuildConfig.printableVersionString(), BuildConfig.BUILD_PLATFORM);
         m_launcher->prependStep(makeShared<TextPrint>(m_launcher, versionString + "\n", MessageLevel::Launcher));
     }
+    m_launchStartTime = QDateTime::currentMSecsSinceEpoch();
     m_launcher->start();
 }
 
@@ -485,6 +486,31 @@ void LaunchController::readyForLaunch()
 
 void LaunchController::onSucceeded()
 {
+    // Double check: if a crash report was generated, do not treat as success
+    if (m_instance && m_instance->settings()->get("EnableCrashAssistant").toBool()) {
+        bool hasRecentCrashReport = false;
+        QString crashReportsDir = FS::PathCombine(m_instance->gameRoot(), "crash-reports");
+        QDir dir(crashReportsDir);
+        qint64 now = QDateTime::currentMSecsSinceEpoch();
+        qint64 launchTime = m_launchStartTime > 0 ? m_launchStartTime : m_instance->lastLaunch();
+
+        if (dir.exists()) {
+            auto reports = dir.entryInfoList({ "crash-*.txt" }, QDir::Files, QDir::Time);
+            if (!reports.isEmpty()) {
+                const auto& latestInfo = reports.first();
+                qint64 reportTime = latestInfo.lastModified().toMSecsSinceEpoch();
+                if (launchTime > 0 && reportTime >= launchTime - 5000 && reportTime >= now - 60000) {
+                    hasRecentCrashReport = true;
+                }
+            }
+        }
+        if (hasRecentCrashReport) {
+            m_instance->setCrashed(true);
+            onFailed(tr("Game crashed with exit code 0."));
+            return;
+        }
+    }
+
     emitSucceeded();
 }
 
@@ -499,7 +525,8 @@ void LaunchController::onFailed(QString reason)
         APPLICATION->showInstanceWindow(m_instance, "console");
     }
 
-    if (m_instance->hasCrashed() && m_instance->settings()->get("EnableCrashAssistant").toBool()) {
+    if (m_instance->settings()->get("EnableCrashAssistant").toBool()) {
+        m_instance->setCrashed(true);
         QString rawLog;
         QStringList logLines;
         if (m_launcher && m_launcher->getLogModel()) {
@@ -522,7 +549,10 @@ void LaunchController::onFailed(QString reason)
             auto reports = dir.entryInfoList({ "crash-*.txt" }, QDir::Files, QDir::Time);
             if (!reports.isEmpty()) {
                 const auto& latestInfo = reports.first();
-                if (m_instance->lastLaunch() <= 0 || latestInfo.lastModified().toMSecsSinceEpoch() >= m_instance->lastLaunch() - 60000) {
+                qint64 now = QDateTime::currentMSecsSinceEpoch();
+                qint64 launchTime = m_launchStartTime > 0 ? m_launchStartTime : m_instance->lastLaunch();
+                qint64 reportTime = latestInfo.lastModified().toMSecsSinceEpoch();
+                if ((launchTime > 0 && reportTime >= launchTime - 10000) || (reportTime >= now - 120000)) {
                     QFile file(latestInfo.absoluteFilePath());
                     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
                         latestCrashReport = QString::fromUtf8(file.readAll());

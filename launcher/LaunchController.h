@@ -100,4 +100,5 @@ class LaunchController : public Task {
     AuthSessionPtr m_session = nullptr;
     LaunchTask* m_launcher = nullptr;
     MinecraftTarget::Ptr m_targetToJoin = nullptr;
+    qint64 m_launchStartTime = 0;
 };

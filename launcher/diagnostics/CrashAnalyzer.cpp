@@ -12,6 +12,9 @@
 
 #include "BaseInstance.h"
 #include "FileSystem.h"
+#include "minecraft/MinecraftInstance.h"
+#include "minecraft/mod/ModFolderModel.h"
+#include "minecraft/mod/Mod.h"
 #include "settings/SettingsObject.h"
 
 DiagnosisResult CrashAnalyzer::analyze(BaseInstance* instance, const QStringList& logLines, const QString& crashReportContent, int exitCode)
@@ -195,21 +198,51 @@ DiagnosisResult CrashAnalyzer::detectDuplicateMods(const QString& fullText, Base
 DiagnosisResult CrashAnalyzer::detectMissingDependency(const QString& fullText, BaseInstance* instance)
 {
     DiagnosisResult res;
+
+    // Pattern 1: NeoForge "Unsupported installed optional dependencies"
+    static const QRegularExpression optionalDepPattern(
+        R"(Unsupported\s+installed\s+optional\s+dependencies:\s*[\r\n\s]*Mod\s+ID:\s*'([^']+)',\s*Requested\s+by:\s*'([^']+)'(?:,\s*Expected\s+range:\s*'([^']+)',\s*Actual\s+version:\s*'([^']+)')?)",
+        QRegularExpression::CaseInsensitiveOption
+    );
+    auto optMatch = optionalDepPattern.match(fullText);
+
+    // Pattern 2: NeoForge / FML Crash Report "Mod loading issue for"
+    static const QRegularExpression fmlIssuePattern(
+        R"(Mod\s+([a-zA-Z0-9_\-]+)\s+only\s+supports\s+([a-zA-Z0-9_\-]+)\s+([^\n\r]+?)\s+or\s+above[\r\n\s]+Currently,\s+\2\s+is\s+([^\n\r]+))",
+        QRegularExpression::CaseInsensitiveOption
+    );
+    auto fmlIssueMatch = fmlIssuePattern.match(fullText);
+
+    // Pattern 3: Standard mandatory dependencies
     static const QRegularExpression depPattern(
         R"(requires\s+(?:version\s+[^\n\r]+of\s+)?mod\s+'([^']+)'|Mod\s+'([^']+)'[^\n\r]*requires\s+(?:version\s+[^\n\r]+of\s+)?'([^']+)'|ModLoadingException:\s*Mod\s+(\S+)\s+requires\s+(\S+)|Could\s+not\s+find\s+required\s+mod:\s*'([^']+)'|Missing\s+or\s+unsupported\s+mandatory\s+dependencies:\s*[\r\n\s]*Mod\s+ID:\s*'([^']+)',\s*Requested\s+by:\s*'([^']+)'|Missing\s+or\s+unsupported\s+mandatory\s+dependencies:\s*([^\n\r]+)|Incompatible\s+mod\s+set\s+found![^\n\r]*[\r\n\s]*-\s*Mod\s+'([^']+)'[^\n\r]*requires\s+([^\n\r]+))",
         QRegularExpression::CaseInsensitiveOption
     );
     auto match = depPattern.match(fullText);
 
-    if (!match.hasMatch() && !fullText.contains("Missing mandatory dependencies", Qt::CaseInsensitive) &&
+    if (!optMatch.hasMatch() && !fmlIssueMatch.hasMatch() && !match.hasMatch() &&
+        !fullText.contains("Missing mandatory dependencies", Qt::CaseInsensitive) &&
+        !fullText.contains("Unsupported installed optional dependencies", Qt::CaseInsensitive) &&
         !fullText.contains("Incompatible mod set found!", Qt::CaseInsensitive)) {
         return res;
     }
 
     QString dependentMod;
     QString requiredMod;
+    QString expectedRange;
+    QString actualVersion;
 
-    if (match.hasMatch()) {
+    if (optMatch.hasMatch()) {
+        requiredMod = optMatch.captured(1);
+        dependentMod = optMatch.captured(2);
+        expectedRange = optMatch.captured(3);
+        actualVersion = optMatch.captured(4);
+    } else if (fmlIssueMatch.hasMatch()) {
+        dependentMod = fmlIssueMatch.captured(1);
+        requiredMod = fmlIssueMatch.captured(2);
+        expectedRange = fmlIssueMatch.captured(3).trimmed() + " or above";
+        actualVersion = fmlIssueMatch.captured(4).trimmed();
+    } else if (match.hasMatch()) {
         if (!match.captured(2).isEmpty() && !match.captured(3).isEmpty()) {
             dependentMod = match.captured(2);
             requiredMod = match.captured(3);
@@ -232,33 +265,81 @@ DiagnosisResult CrashAnalyzer::detectMissingDependency(const QString& fullText, 
     }
 
     res.category = CrashCategory::MissingDependency;
-    res.fixAction = RecommendedFix::UploadLog;
 
-    res.title = QCoreApplication::translate("CrashAnalyzer", "Missing Required Mod (Dependency)");
-    if (!dependentMod.isEmpty() && !requiredMod.isEmpty()) {
+    // Resolve mod jar files on disk
+    QString dependentJar = findModPathByName(instance, dependentMod);
+    QString requiredJar = findModPathByName(instance, requiredMod);
+
+    QString jarInfoText;
+    if (!dependentJar.isEmpty() || !requiredJar.isEmpty()) {
+        jarInfoText = "\n\n" + QCoreApplication::translate("CrashAnalyzer", "Detected Mod JARs:") + "\n";
+        if (!dependentJar.isEmpty()) {
+            jarInfoText += QString(" - %1 -> %2\n").arg(dependentMod, QFileInfo(dependentJar).fileName());
+        }
+        if (!requiredJar.isEmpty()) {
+            jarInfoText += QString(" - %1 -> %2\n").arg(requiredMod, QFileInfo(requiredJar).fileName());
+        }
+    }
+
+    if (!expectedRange.isEmpty() && !actualVersion.isEmpty()) {
+        res.title = QCoreApplication::translate("CrashAnalyzer", "Mod Dependency Incompatibility");
+        res.description = QCoreApplication::translate("CrashAnalyzer",
+            "Mod '%1' requires '%2' version %3, but installed version is %4.")
+            .arg(dependentMod, requiredMod, expectedRange, actualVersion) + jarInfoText;
+
+        // The offending mod to disable is dependentJar (the requesting addon, e.g. ftbxmodcompat),
+        // because disabling requiredMod (e.g. JEI) would break the entire modpack.
+        QString offendingJar = !dependentJar.isEmpty() ? dependentJar : requiredJar;
+        QString offendingName = !offendingJar.isEmpty() ? QFileInfo(offendingJar).fileName() : (!dependentMod.isEmpty() ? dependentMod : requiredMod);
+
+        res.solutionText = QCoreApplication::translate("CrashAnalyzer",
+            "Update '%1' to match the required version, or temporarily disable '%2'.")
+            .arg(requiredMod, offendingName);
+
+        if (!offendingJar.isEmpty()) {
+            res.fixAction = RecommendedFix::DisableMod;
+            res.offendingModPath = offendingJar;
+            res.offendingModName = offendingName;
+            res.actionButtonText = QCoreApplication::translate("CrashAnalyzer", "Disable %1").arg(res.offendingModName);
+        } else {
+            res.fixAction = RecommendedFix::UploadLog;
+            res.actionButtonText = QCoreApplication::translate("CrashAnalyzer", "Upload Log to mclo.gs");
+        }
+    } else if (!dependentMod.isEmpty() && !requiredMod.isEmpty()) {
+        res.title = QCoreApplication::translate("CrashAnalyzer", "Missing Required Mod (Dependency)");
         res.description = QCoreApplication::translate("CrashAnalyzer",
             "Mod '%1' requires '%2' to be installed, but it is missing or incompatible.")
-            .arg(dependentMod, requiredMod);
+            .arg(dependentMod, requiredMod) + jarInfoText;
         res.solutionText = QCoreApplication::translate("CrashAnalyzer",
             "Install the required mod ('%1') into your mods folder or update the modpack.")
             .arg(requiredMod);
+        res.fixAction = RecommendedFix::UploadLog;
+        res.actionButtonText = QCoreApplication::translate("CrashAnalyzer", "Upload Log to mclo.gs");
     } else if (!requiredMod.isEmpty()) {
+        res.title = QCoreApplication::translate("CrashAnalyzer", "Missing Required Mod (Dependency)");
         res.description = QCoreApplication::translate("CrashAnalyzer",
             "The mod '%1' is required but is missing or incompatible.")
-            .arg(requiredMod);
+            .arg(requiredMod) + jarInfoText;
         res.solutionText = QCoreApplication::translate("CrashAnalyzer",
             "Install '%1' into your mods folder or update the modpack.")
             .arg(requiredMod);
+        res.fixAction = RecommendedFix::UploadLog;
+        res.actionButtonText = QCoreApplication::translate("CrashAnalyzer", "Upload Log to mclo.gs");
     } else {
+        res.title = QCoreApplication::translate("CrashAnalyzer", "Missing Required Mod (Dependency)");
         res.description = QCoreApplication::translate("CrashAnalyzer",
             "One or more mods are missing their mandatory library dependencies:\n%1")
             .arg(match.hasMatch() ? match.captured(0) : "Missing mandatory dependencies");
         res.solutionText = QCoreApplication::translate("CrashAnalyzer",
             "Install the missing dependency mod into the mods folder or update the modpack.");
+        res.fixAction = RecommendedFix::UploadLog;
+        res.actionButtonText = QCoreApplication::translate("CrashAnalyzer", "Upload Log to mclo.gs");
     }
 
-    res.actionButtonText = QCoreApplication::translate("CrashAnalyzer", "Upload Log to mclo.gs");
-    res.technicalDetails = match.hasMatch() ? match.captured(0) : "Missing mandatory dependencies";
+    if (optMatch.hasMatch()) res.technicalDetails = optMatch.captured(0);
+    else if (fmlIssueMatch.hasMatch()) res.technicalDetails = fmlIssueMatch.captured(0);
+    else if (match.hasMatch()) res.technicalDetails = match.captured(0);
+    else res.technicalDetails = "Missing mandatory dependencies";
 
     return res;
 }
@@ -360,7 +441,12 @@ DiagnosisResult CrashAnalyzer::detectModConflict(const QString& fullText, const 
 
     // 4. If no loader pattern matched, inspect stack trace for third-party mod frames
     if (modIdentifier.isEmpty()) {
-        modIdentifier = extractModIdentifierFromStackTrace(fullText);
+        if (!crashReport.isEmpty()) {
+            modIdentifier = extractModIdentifierFromStackTrace(crashReport);
+        }
+        if (modIdentifier.isEmpty()) {
+            modIdentifier = extractModIdentifierFromStackTrace(fullText);
+        }
     }
 
     if (modIdentifier.isEmpty()) {
@@ -583,34 +669,64 @@ DiagnosisResult CrashAnalyzer::createFallbackDiagnosis(const QString& fullText, 
 
 QString CrashAnalyzer::extractModIdentifierFromStackTrace(const QString& fullText)
 {
-    int causedByIdx = fullText.lastIndexOf("Caused by:");
-    int startPos = (causedByIdx != -1) ? causedByIdx : fullText.indexOf("Exception in thread ");
+    // Search in priority order:
+    // 1. Crash report stacktrace block
+    // 2. "Caused by:" stacktrace
+    // 3. "Exception in thread "
+    // 4. Beginning of text
+    int startPos = fullText.indexOf("---- Minecraft Crash Report ----");
     if (startPos == -1) {
-        startPos = fullText.indexOf("---- Minecraft Crash Report ----");
+        startPos = fullText.lastIndexOf("Caused by:");
+    }
+    if (startPos == -1) {
+        startPos = fullText.indexOf("Exception in thread ");
     }
     if (startPos == -1) {
         startPos = 0;
     }
 
-    QString textSlice = fullText.mid(startPos, 4000);
-    static const QRegularExpression stackFramePattern(R"(\tat\s+([a-zA-Z0-9_.]+)\.([a-zA-Z0-9_<>$]+)\()");
+    QString textSlice = fullText.mid(startPos, 6000);
+
+    // Matches: \tat [TRANSFORMER/][modid@ver/]package.Class.method(...) [~[jarname.jar#...]]
+    static const QRegularExpression stackFramePattern(
+        R"(\tat\s+(?:(?:[a-zA-Z0-9_\-]+/)?([a-zA-Z0-9_\-]+)@[^/]+/|(?:[a-zA-Z0-9_\-]+/)+)?([a-zA-Z0-9_.]+)\.([a-zA-Z0-9_<>$]+)\([^\)]*\)(?:\s*~\[([^%!#\]\s]+\.jar))?)",
+        QRegularExpression::CaseInsensitiveOption
+    );
     auto iter = stackFramePattern.globalMatch(textSlice);
 
     while (iter.hasNext()) {
         auto m = iter.next();
-        QString fullClass = m.captured(1);
+        QString modId = m.captured(1);
+        QString fullClass = m.captured(2);
+        QString jarName = m.captured(4);
 
         // Skip JDK, Java, standard Minecraft, and loader internals
         if (fullClass.startsWith("java.") || fullClass.startsWith("javax.") ||
             fullClass.startsWith("sun.") || fullClass.startsWith("jdk.") ||
             fullClass.startsWith("net.minecraft.") || fullClass.startsWith("com.mojang.") ||
-            fullClass.startsWith("org.spongepowered.asm.mixin.") ||
-            fullClass.startsWith("cpw.mods.modlauncher.") ||
-            fullClass.startsWith("net.neoforged.fml.") ||
-            fullClass.startsWith("net.minecraftforge.fml.")) {
+            fullClass.startsWith("org.spongepowered.asm.") ||
+            fullClass.startsWith("cpw.mods.") ||
+            fullClass.startsWith("net.neoforged.") ||
+            fullClass.startsWith("net.minecraftforge.") ||
+            fullClass.startsWith("org.lwjgl.") ||
+            fullClass.startsWith("io.netty.") ||
+            fullClass.startsWith("org.apache.logging.") ||
+            fullClass.startsWith("org.slf4j.")) {
             continue;
         }
 
+        // 1. Direct JAR blame from stack frame (~[modfile.jar])
+        if (!jarName.isEmpty() && !jarName.startsWith("client-") && !jarName.startsWith("server-") &&
+            !jarName.startsWith("neoforge-") && !jarName.startsWith("forge-")) {
+            return jarName;
+        }
+
+        // 2. Mod ID from module layer (TRANSFORMER/modid@version)
+        if (!modId.isEmpty() && modId != "minecraft" && modId != "neoforge" && modId != "forge") {
+            return modId;
+        }
+
+        // 3. Fall back to package heuristic
         QStringList parts = fullClass.split('.');
         if (parts.size() >= 3) {
             if (parts.size() >= 4 && parts[0] == "dev" && parts[2] == "mods") {
@@ -649,6 +765,20 @@ QString CrashAnalyzer::findModPathByName(BaseInstance* instance, const QString& 
         return QString();
     }
 
+    // 0. Check indexed instance mod list if available
+    if (auto* mcInst = dynamic_cast<MinecraftInstance*>(instance)) {
+        if (auto* modList = mcInst->loaderModList()) {
+            for (auto* mod : modList->allMods()) {
+                if (!mod) continue;
+                if (mod->id().compare(cleanQuery, Qt::CaseInsensitive) == 0 ||
+                    mod->name().compare(cleanQuery, Qt::CaseInsensitive) == 0 ||
+                    mod->fileinfo().fileName().compare(cleanQuery, Qt::CaseInsensitive) == 0) {
+                    return mod->fileinfo().absoluteFilePath();
+                }
+            }
+        }
+    }
+
     QStringList searchFolders = {
         FS::PathCombine(instance->gameRoot(), "mods"),
         FS::PathCombine(instance->instanceRoot(), ".minecraft/mods"),
@@ -660,8 +790,11 @@ QString CrashAnalyzer::findModPathByName(BaseInstance* instance, const QString& 
         QDir dir(folder);
         QStringList files = dir.entryList({ "*.jar", "*.jar.disabled" }, QDir::Files);
 
-        // 1. Direct match
+        // 1. Direct match (exact file name or base name)
         for (const auto& file : files) {
+            if (file.compare(cleanQuery, Qt::CaseInsensitive) == 0) {
+                return dir.absoluteFilePath(file);
+            }
             QString base = file;
             if (base.endsWith(".disabled")) base.chop(9);
             if (base.endsWith(".jar")) base.chop(4);
@@ -686,14 +819,16 @@ QString CrashAnalyzer::findModPathByName(BaseInstance* instance, const QString& 
             }
         }
 
-        // 4. Normalized match (hyphens and underscores)
-        QString normQuery = cleanQuery;
-        normQuery.replace('_', '-');
-        for (const auto& file : files) {
-            QString normFile = file;
-            normFile.replace('_', '-');
-            if (normFile.contains(normQuery, Qt::CaseInsensitive)) {
-                return dir.absoluteFilePath(file);
+        // 4. Symmetrical alphanumeric match (stripping hyphens, underscores, dots, and whitespace)
+        QString cleanQ = cleanQuery;
+        cleanQ.remove('-').remove('_').remove('.').remove(' ');
+        if (cleanQ.length() >= 3) {
+            for (const auto& file : files) {
+                QString cleanF = file;
+                cleanF.remove('-').remove('_').remove('.').remove(' ');
+                if (cleanF.contains(cleanQ, Qt::CaseInsensitive)) {
+                    return dir.absoluteFilePath(file);
+                }
             }
         }
     }
