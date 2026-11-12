@@ -770,7 +770,7 @@ QString CrashAnalyzer::findModPathByName(BaseInstance* instance, const QString& 
         if (auto* modList = mcInst->loaderModList()) {
             for (auto* mod : modList->allMods()) {
                 if (!mod) continue;
-                if (mod->id().compare(cleanQuery, Qt::CaseInsensitive) == 0 ||
+                if (mod->mod_id().compare(cleanQuery, Qt::CaseInsensitive) == 0 ||
                     mod->name().compare(cleanQuery, Qt::CaseInsensitive) == 0 ||
                     mod->fileinfo().fileName().compare(cleanQuery, Qt::CaseInsensitive) == 0) {
                     return mod->fileinfo().absoluteFilePath();
