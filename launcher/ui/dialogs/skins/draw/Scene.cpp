@@ -1,4 +1,3 @@
-
 // SPDX-License-Identifier: GPL-3.0-only
 /*
  *  Prism Launcher - Minecraft Launcher
@@ -19,14 +18,24 @@
 
 #include "ui/dialogs/skins/draw/Scene.h"
 
-#include <QOpenGLFunctions>
-#include <QOpenGLShaderProgram>
-#include <QOpenGLTexture>
-
 namespace opengl {
-Scene::Scene(const QImage& skin, bool slim, const QImage& cape) : QOpenGLFunctions(), m_slim(slim), m_capeVisible(!cape.isNull())
+namespace {
+QImage normalizeTexture(const QImage& inputImage, int defaultWidth, int defaultHeight)
 {
-    initializeOpenGLFunctions();
+    if (inputImage.isNull() || inputImage.width() <= 0 || inputImage.height() <= 0) {
+        QImage img(defaultWidth, defaultHeight, QImage::Format_ARGB32);
+        img.fill(Qt::transparent);
+        return img;
+    }
+    if (inputImage.format() != QImage::Format_ARGB32) {
+        return inputImage.convertToFormat(QImage::Format_ARGB32);
+    }
+    return inputImage;
+}
+}  // namespace
+
+Scene::Scene(const QImage& skin, bool slim, const QImage& cape) : m_slim(slim), m_capeVisible(!cape.isNull())
+{
     m_staticComponents = {
         // head
         new opengl::BoxGeometry(QVector3D(8, 8, 8), QVector3D(0, 4, 0), QPoint(0, 0), QVector3D(8, 8, 8)),
@@ -94,25 +103,10 @@ Scene::Scene(const QImage& skin, bool slim, const QImage& cape) : QOpenGLFunctio
     rightWing->rotate(1, QVector3D(1, 0, 0));
     m_elytra << leftWing << rightWing;
 
-    // texture init
-    auto createTextureFromImage = [](const QImage& inputImage, int defaultWidth, int defaultHeight) -> QOpenGLTexture* {
-        QImage img = inputImage;
-        if (img.isNull() || img.width() <= 0 || img.height() <= 0) {
-            img = QImage(defaultWidth, defaultHeight, QImage::Format_RGBA8888);
-            img.fill(Qt::transparent);
-        } else if (img.format() != QImage::Format_RGBA8888 && img.format() != QImage::Format_ARGB32) {
-            img = img.convertToFormat(QImage::Format_RGBA8888);
-        }
-        auto texture = new QOpenGLTexture(img.mirrored());
-        texture->setMinificationFilter(QOpenGLTexture::Nearest);
-        texture->setMagnificationFilter(QOpenGLTexture::Nearest);
-        texture->setWrapMode(QOpenGLTexture::ClampToEdge);
-        return texture;
-    };
-
-    m_skinTexture = createTextureFromImage(skin, 64, 64);
-    m_capeTexture = createTextureFromImage(cape, 64, 32);
+    m_skinImage = normalizeTexture(skin, 64, 64);
+    m_capeImage = normalizeTexture(cape, 64, 32);
 }
+
 Scene::~Scene()
 {
     for (auto array :
@@ -122,90 +116,49 @@ Scene::~Scene()
         }
     }
     delete m_cape;
-
-    if (m_skinTexture) {
-        if (m_skinTexture->isBound())
-            m_skinTexture->release();
-        m_skinTexture->destroy();
-        delete m_skinTexture;
-        m_skinTexture = nullptr;
-    }
-
-    if (m_capeTexture) {
-        if (m_capeTexture->isBound())
-            m_capeTexture->release();
-        m_capeTexture->destroy();
-        delete m_capeTexture;
-        m_capeTexture = nullptr;
-    }
 }
 
-void Scene::draw(QOpenGLShaderProgram* program)
+void Scene::draw(const QMatrix4x4& vpMatrix, QImage& target, std::vector<float>& zBuffer) const
 {
-    if (m_skinTexture && m_skinTexture->isCreated()) {
-        m_skinTexture->bind();
-        program->setUniformValue("texture", 0);
-        for (auto toDraw : { m_staticComponents, m_slim ? m_slimArms : m_normalArms, m_staticComponentsOverlay,
-                             m_slim ? m_slimArmsOverlay : m_normalArmsOverlay }) {
-            for (auto g : toDraw) {
-                g->draw(program);
+    if (!m_skinImage.isNull()) {
+        for (const auto& toDraw : { m_staticComponents, m_slim ? m_slimArms : m_normalArms, m_staticComponentsOverlay,
+                                    m_slim ? m_slimArmsOverlay : m_normalArmsOverlay }) {
+            for (const auto* g : toDraw) {
+                g->rasterize(vpMatrix, m_skinImage, target, zBuffer);
             }
         }
-        m_skinTexture->release();
     }
-    if (m_capeVisible && m_capeTexture && m_capeTexture->isCreated()) {
-        m_capeTexture->bind();
-        program->setUniformValue("texture", 0);
+    if (m_capeVisible && !m_capeImage.isNull()) {
         if (!m_elytraVisible) {
-            m_cape->draw(program);
+            m_cape->rasterize(vpMatrix, m_capeImage, target, zBuffer);
         } else {
-            for (auto e : m_elytra) {
-                e->draw(program);
+            for (const auto* e : m_elytra) {
+                e->rasterize(vpMatrix, m_capeImage, target, zBuffer);
             }
         }
-        m_capeTexture->release();
     }
-}
-
-static QOpenGLTexture* updateOrRecreateTexture(QOpenGLTexture* oldTexture, const QImage& inputImage, int defaultWidth, int defaultHeight)
-{
-    if (oldTexture) {
-        if (oldTexture->isBound())
-            oldTexture->release();
-        oldTexture->destroy();
-        delete oldTexture;
-    }
-    QImage img = inputImage;
-    if (img.isNull() || img.width() <= 0 || img.height() <= 0) {
-        img = QImage(defaultWidth, defaultHeight, QImage::Format_RGBA8888);
-        img.fill(Qt::transparent);
-    } else if (img.format() != QImage::Format_RGBA8888 && img.format() != QImage::Format_ARGB32) {
-        img = img.convertToFormat(QImage::Format_RGBA8888);
-    }
-    auto texture = new QOpenGLTexture(img.mirrored());
-    texture->setMinificationFilter(QOpenGLTexture::Nearest);
-    texture->setMagnificationFilter(QOpenGLTexture::Nearest);
-    texture->setWrapMode(QOpenGLTexture::ClampToEdge);
-    return texture;
 }
 
 void Scene::setSkin(const QImage& skin)
 {
-    m_skinTexture = updateOrRecreateTexture(m_skinTexture, skin, 64, 64);
+    m_skinImage = normalizeTexture(skin, 64, 64);
 }
 
 void Scene::setMode(bool slim)
 {
     m_slim = slim;
 }
+
 void Scene::setCape(const QImage& cape)
 {
-    m_capeTexture = updateOrRecreateTexture(m_capeTexture, cape, 64, 32);
+    m_capeImage = normalizeTexture(cape, 64, 32);
 }
+
 void Scene::setCapeVisible(bool visible)
 {
     m_capeVisible = visible;
 }
+
 void Scene::setElytraVisible(bool elytraVisible)
 {
     m_elytraVisible = elytraVisible;

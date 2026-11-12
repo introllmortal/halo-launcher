@@ -18,16 +18,19 @@
 
 #pragma once
 
+#include <QImage>
+#include <QMatrix4x4>
+#include <vector>
+
 #include "ui/dialogs/skins/draw/BoxGeometry.h"
 
-#include <QOpenGLTexture>
 namespace opengl {
-class Scene : protected QOpenGLFunctions {
+class Scene {
    public:
     Scene(const QImage& skin, bool slim, const QImage& cape);
     virtual ~Scene();
 
-    void draw(QOpenGLShaderProgram* program);
+    void draw(const QMatrix4x4& vpMatrix, QImage& target, std::vector<float>& zBuffer) const;
     void setSkin(const QImage& skin);
     void setCape(const QImage& cape);
     void setMode(bool slim);
@@ -43,8 +46,8 @@ class Scene : protected QOpenGLFunctions {
     QList<BoxGeometry*> m_slimArmsOverlay;
     BoxGeometry* m_cape = nullptr;
     QList<BoxGeometry*> m_elytra;
-    QOpenGLTexture* m_skinTexture = nullptr;
-    QOpenGLTexture* m_capeTexture = nullptr;
+    QImage m_skinImage;
+    QImage m_capeImage;
     bool m_slim = false;
     bool m_capeVisible = false;
     bool m_elytraVisible = false;

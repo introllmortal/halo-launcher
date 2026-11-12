@@ -18,34 +18,39 @@
 
 #pragma once
 
+#include <QImage>
+#include <QList>
 #include <QMatrix4x4>
-#include <QOpenGLBuffer>
-#include <QOpenGLFunctions>
-#include <QOpenGLShaderProgram>
-#include <QOpenGLVertexArrayObject>
+#include <QPoint>
+#include <QSize>
+#include <QVector2D>
 #include <QVector3D>
+#include <QVector4D>
+#include <vector>
 
 namespace opengl {
-class BoxGeometry : protected QOpenGLFunctions {
+class BoxGeometry {
    public:
     BoxGeometry(QVector3D size, QVector3D position);
     BoxGeometry(QVector3D size, QVector3D position, QPoint uv, QVector3D textureDim, QSize textureSize = { 64, 64 });
     static BoxGeometry* Plane();
     virtual ~BoxGeometry();
 
-    void draw(QOpenGLShaderProgram* program);
+    void rasterize(const QMatrix4x4& vpMatrix, const QImage& texture, QImage& target, std::vector<float>& zBuffer) const;
 
     void initGeometry(float u, float v, float width, float height, float depth, float textureWidth = 64, float textureHeight = 64);
     void rotate(float angle, const QVector3D& vector);
     void scale(const QVector3D& vector);
 
    private:
-    QOpenGLVertexArrayObject m_vao;
-    QOpenGLBuffer m_vertexBuf;
-    QOpenGLBuffer m_indexBuf;
+    struct VertexData {
+        QVector4D position;
+        QVector2D texCoord;
+    };
+
+    QList<VertexData> m_vertices;
     QVector3D m_size;
     QVector3D m_position;
     QMatrix4x4 m_matrix;
-    GLsizei m_indecesCount = 0;
 };
 }  // namespace opengl

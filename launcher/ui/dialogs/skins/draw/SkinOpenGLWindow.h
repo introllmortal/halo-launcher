@@ -18,14 +18,15 @@
 
 #pragma once
 
+#include <QColor>
+#include <QHash>
+#include <QImage>
 #include <QMatrix4x4>
-#include <QOpenGLFunctions>
-#include <QOpenGLShaderProgram>
-#include <QOpenGLTexture>
-#include <QOpenGLWidget>
 #include <QVector2D>
+#include <QWidget>
+#include <vector>
+
 #include "minecraft/skins/SkinModel.h"
-#include "ui/dialogs/skins/draw/BoxGeometry.h"
 #include "ui/dialogs/skins/draw/Scene.h"
 
 class SkinProvider {
@@ -34,12 +35,13 @@ class SkinProvider {
     virtual SkinModel* getSelectedSkin() = 0;
     virtual QHash<QString, QImage> capes() = 0;
 };
-class SkinOpenGLWindow : public QOpenGLWidget, protected QOpenGLFunctions {
+
+class SkinOpenGLWindow : public QWidget {
     Q_OBJECT
 
    public:
     SkinOpenGLWindow(SkinProvider* parent, QColor color, QWidget* widgetParent = nullptr);
-    virtual ~SkinOpenGLWindow();
+    ~SkinOpenGLWindow() override;
 
     void updateScene(SkinModel* skin);
     void updateCape(const QImage& cape);
@@ -55,34 +57,24 @@ class SkinOpenGLWindow : public QOpenGLWidget, protected QOpenGLFunctions {
     void mouseReleaseEvent(QMouseEvent* e) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
-
-    void initializeGL() override;
-    void resizeGL(int w, int h) override;
-    void paintGL() override;
-
-    bool initShaders();
-
-    void generateBackgroundTexture(int width, int height, int tileSize);
-    void renderBackground();
+    void paintEvent(QPaintEvent* event) override;
 
    private:
-    QOpenGLShaderProgram* m_modelProgram = nullptr;
-    QOpenGLShaderProgram* m_backgroundProgram = nullptr;
-    opengl::Scene* m_scene = nullptr;
+    void ensureSceneInitialized();
+    void renderBackground(QImage& target) const;
 
-    QMatrix4x4 m_projection;
+    opengl::Scene* m_scene = nullptr;
 
     QVector2D m_mousePosition;
 
     bool m_isMousePressed = false;
-    bool m_glError = false;
-    float m_distance = 48;
-    float m_yaw = 90;   // Horizontal rotation angle
-    float m_pitch = 0;  // Vertical rotation angle
+    float m_distance = 48.0f;
+    float m_yaw = 90.0f;   // Horizontal rotation angle
+    float m_pitch = 0.0f;  // Vertical rotation angle
 
-    opengl::BoxGeometry* m_background = nullptr;
-    QOpenGLTexture* m_backgroundTexture = nullptr;
     QColor m_baseColor;
+    QColor m_checkerLight;
+    QColor m_checkerDark;
     SkinProvider* m_parent = nullptr;
 
     QImage m_pendingSkin;
@@ -90,4 +82,8 @@ class SkinOpenGLWindow : public QOpenGLWidget, protected QOpenGLFunctions {
     bool m_skinDirty = false;
     QImage m_pendingCape;
     bool m_capeDirty = false;
+    bool m_pendingElytra = false;
+    bool m_elytraDirty = false;
+
+    std::vector<float> m_zBuffer;
 };

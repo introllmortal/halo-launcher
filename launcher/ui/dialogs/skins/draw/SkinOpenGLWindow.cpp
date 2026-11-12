@@ -18,122 +18,59 @@
 
 #include "ui/dialogs/skins/draw/SkinOpenGLWindow.h"
 
-#include <QDebug>
 #include <QMouseEvent>
-#include <QOpenGLBuffer>
-#include <QOpenGLContext>
-#include <QProcessEnvironment>
-#include <QVector2D>
+#include <QPainter>
 #include <QVector3D>
+#include <QWheelEvent>
 #include <QtMath>
+#include <algorithm>
+#include <cmath>
 #include <functional>
 
-#include "BuildConfig.h"
 #include "minecraft/skins/SkinModel.h"
 #include "rainbow.h"
-#include "ui/dialogs/skins/draw/BoxGeometry.h"
 #include "ui/dialogs/skins/draw/Scene.h"
 
-SkinOpenGLWindow::SkinOpenGLWindow(SkinProvider* parent, QColor color, QWidget* widgetParent)
-    : QOpenGLWidget(widgetParent), QOpenGLFunctions(), m_baseColor(color), m_parent(parent)
+namespace {
+QColor calculateContrastingColor(const QColor& color)
 {
-    QSurfaceFormat format = QSurfaceFormat::defaultFormat();
-    format.setDepthBufferSize(24);
-    setFormat(format);
+    auto luma = Rainbow::luma(color);
+    if (luma < 0.5) {
+        constexpr float contrast = 0.05f;
+        return Rainbow::lighten(color, contrast);
+    }
+    constexpr float contrast = 0.2f;
+    return Rainbow::darken(color, contrast);
+}
+}  // namespace
+
+SkinOpenGLWindow::SkinOpenGLWindow(SkinProvider* parent, QColor color, QWidget* widgetParent)
+    : QWidget(widgetParent), m_baseColor(color), m_parent(parent)
+{
+    const bool isDarkBase = Rainbow::luma(color) < 0.5;
+    const float contrast = isDarkBase ? 0.05f : 0.45f;
+    auto contrastFunc = std::bind(isDarkBase ? Rainbow::lighten : Rainbow::darken, std::placeholders::_1, contrast, 1.0);
+    m_checkerLight = contrastFunc(color);
+    m_checkerDark = contrastFunc(calculateContrastingColor(color));
+
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMinimumSize(120, 160);
 }
 
 SkinOpenGLWindow::~SkinOpenGLWindow()
 {
-    const bool hasContext = isValid();
-    if (hasContext) {
-        makeCurrent();
-    }
     delete m_scene;
     m_scene = nullptr;
-    delete m_background;
-    m_background = nullptr;
-    if (m_backgroundTexture) {
-        if (hasContext && m_backgroundTexture->isCreated()) {
-            m_backgroundTexture->destroy();
-        }
-        delete m_backgroundTexture;
-        m_backgroundTexture = nullptr;
-    }
-    auto cleanupProgram = [hasContext](QOpenGLShaderProgram*& program) {
-        if (!program) {
-            return;
-        }
-        if (hasContext) {
-            if (program->isLinked()) {
-                program->release();
-            }
-            program->removeAllShaders();
-        }
-        delete program;
-        program = nullptr;
-    };
-    cleanupProgram(m_modelProgram);
-    cleanupProgram(m_backgroundProgram);
-    if (hasContext) {
-        doneCurrent();
-    }
 }
 
-void SkinOpenGLWindow::mousePressEvent(QMouseEvent* e)
+void SkinOpenGLWindow::ensureSceneInitialized()
 {
-    // Save mouse press position
-    m_mousePosition = QVector2D(e->pos());
-    m_isMousePressed = true;
-}
-
-void SkinOpenGLWindow::mouseMoveEvent(QMouseEvent* event)
-{
-    // Prevents mouse sticking on Wayland compositors
-    if (!(event->buttons() & Qt::MouseButton::LeftButton)) {
-        m_isMousePressed = false;
+    if (m_scene) {
         return;
     }
 
-    if (m_isMousePressed) {
-        int dx = event->position().x() - m_mousePosition.x();
-        int dy = event->position().y() - m_mousePosition.y();
-
-        m_yaw += dx * 0.5f;
-        m_pitch += dy * 0.5f;
-
-        // Normalize yaw to keep it manageable
-        if (m_yaw > 360.0f)
-            m_yaw -= 360.0f;
-        else if (m_yaw < 0.0f)
-            m_yaw += 360.0f;
-
-        m_mousePosition = QVector2D(event->pos());
-        update();  // Trigger a repaint
-    }
-}
-
-void SkinOpenGLWindow::mouseReleaseEvent([[maybe_unused]] QMouseEvent* e)
-{
-    m_isMousePressed = false;
-}
-
-void SkinOpenGLWindow::initializeGL()
-{
-    initializeOpenGLFunctions();
-
-    glClearColor(m_baseColor.redF(), m_baseColor.greenF(), m_baseColor.blueF(), 1.0f);
-
-    if (!initShaders()) {
-        m_glError = true;
-        emit renderFailed();
-        return;
-    }
-
-    generateBackgroundTexture(32, 32, 1);
-
-    QImage skin, cape;
+    QImage skin;
+    QImage cape;
     bool slim = false;
     if (m_skinDirty) {
         skin = m_pendingSkin;
@@ -152,75 +89,75 @@ void SkinOpenGLWindow::initializeGL()
     }
 
     m_scene = new opengl::Scene(skin, slim, cape);
-    m_background = opengl::BoxGeometry::Plane();
-}
-
-bool SkinOpenGLWindow::initShaders()
-{
-    auto loadProgram = [this](QOpenGLShaderProgram*& program, const char* vshader, const char* fshader) -> bool {
-        program = new QOpenGLShaderProgram(this);
-        if (!program->addCacheableShaderFromSourceFile(QOpenGLShader::Vertex, vshader)) {
-            qWarning() << "SkinOpenGLWindow: failed to compile vertex shader" << vshader << program->log();
-            return false;
-        }
-        if (!program->addCacheableShaderFromSourceFile(QOpenGLShader::Fragment, fshader)) {
-            qWarning() << "SkinOpenGLWindow: failed to compile fragment shader" << fshader << program->log();
-            return false;
-        }
-        if (!program->link()) {
-            qWarning() << "SkinOpenGLWindow: failed to link shader program:" << program->log();
-            return false;
-        }
-        if (!program->bind()) {
-            qWarning() << "SkinOpenGLWindow: failed to bind shader program:" << program->log();
-            return false;
-        }
-        program->release();
-        return true;
-    };
-
-    if (!loadProgram(m_modelProgram, ":/shaders/vshader_skin_model.glsl", ":/shaders/fshader.glsl")) {
-        return false;
+    if (m_elytraDirty) {
+        m_scene->setElytraVisible(m_pendingElytra);
+        m_elytraDirty = false;
     }
-    if (!loadProgram(m_backgroundProgram, ":/shaders/vshader_skin_background.glsl", ":/shaders/fshader.glsl")) {
-        return false;
-    }
-    return true;
 }
 
-void SkinOpenGLWindow::resizeGL(int w, int h)
+void SkinOpenGLWindow::mousePressEvent(QMouseEvent* e)
 {
-    // Calculate aspect ratio
-    float aspect = float(w) / float(h ? h : 1);
-
-    const float zNear = 15.0f, fov = 45.0f;
-
-    // Reset projection
-    m_projection.setToIdentity();
-
-    // Build the reverse z perspective projection matrix
-    double radians = qDegreesToRadians(double(fov) / 2.0);
-    double sine = std::sin(radians);
-    if (sine == 0)
-        return;
-    double cotan = std::cos(radians) / sine;
-
-    m_projection(0, 0) = float(cotan / aspect);
-    m_projection(1, 1) = float(cotan);
-    m_projection(2, 2) = 0.0f;
-    m_projection(3, 2) = -1.0f;
-    m_projection(2, 3) = zNear;
-    m_projection(3, 3) = 0.0f;
+    m_mousePosition = QVector2D(e->pos());
+    m_isMousePressed = true;
 }
 
-void SkinOpenGLWindow::paintGL()
+void SkinOpenGLWindow::mouseMoveEvent(QMouseEvent* event)
 {
-    if (m_glError || !m_scene || !m_background || !m_modelProgram || !m_backgroundProgram) {
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    // Prevents mouse sticking on Wayland compositors
+    if (!(event->buttons() & Qt::MouseButton::LeftButton)) {
+        m_isMousePressed = false;
         return;
     }
 
-    // Process any dirty textures while context is current
+    if (m_isMousePressed) {
+        const float dx = static_cast<float>(event->position().x() - m_mousePosition.x());
+        const float dy = static_cast<float>(event->position().y() - m_mousePosition.y());
+
+        m_yaw += dx * 0.5f;
+        m_pitch = std::clamp(m_pitch + dy * 0.5f, -85.0f, 85.0f);
+
+        if (m_yaw > 360.0f) {
+            m_yaw -= 360.0f;
+        } else if (m_yaw < 0.0f) {
+            m_yaw += 360.0f;
+        }
+
+        m_mousePosition = QVector2D(event->pos());
+        update();
+    }
+}
+
+void SkinOpenGLWindow::mouseReleaseEvent([[maybe_unused]] QMouseEvent* e)
+{
+    m_isMousePressed = false;
+}
+
+void SkinOpenGLWindow::renderBackground(QImage& target) const
+{
+    const int width = target.width();
+    const int height = target.height();
+    const QRgb lightRgb = m_checkerLight.rgba();
+    const QRgb darkRgb = m_checkerDark.rgba();
+
+    constexpr int gridSize = 32;
+    for (int y = 0; y < height; ++y) {
+        const int ty = (y * gridSize) / height;
+        auto* row = reinterpret_cast<QRgb*>(target.scanLine(y));
+        for (int x = 0; x < width; ++x) {
+            const int tx = (x * gridSize) / width;
+            row[x] = ((tx + ty) & 1) == 0 ? lightRgb : darkRgb;
+        }
+    }
+}
+
+void SkinOpenGLWindow::paintEvent([[maybe_unused]] QPaintEvent* event)
+{
+    const qreal dpr = devicePixelRatioF();
+    const int pixelW = std::max(1, static_cast<int>(std::lround(static_cast<qreal>(width()) * dpr)));
+    const int pixelH = std::max(1, static_cast<int>(std::lround(static_cast<qreal>(height()) * dpr)));
+
+    ensureSceneInitialized();
+
     if (m_skinDirty) {
         m_scene->setMode(m_pendingSlim);
         m_scene->setSkin(m_pendingSkin);
@@ -231,144 +168,83 @@ void SkinOpenGLWindow::paintGL()
         m_scene->setCape(m_pendingCape);
         m_capeDirty = false;
     }
+    if (m_elytraDirty) {
+        m_scene->setElytraVisible(m_pendingElytra);
+        m_elytraDirty = false;
+    }
 
-    // Clear color and depth buffer
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    QImage frame(pixelW, pixelH, QImage::Format_ARGB32);
+    renderBackground(frame);
 
-    // Enable depth buffer
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
+    m_zBuffer.assign(static_cast<size_t>(pixelW) * static_cast<size_t>(pixelH), 2.0f);
 
-    glEnable(GL_BLEND);
-    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    const float aspect = static_cast<float>(pixelW) / static_cast<float>(pixelH);
+    QMatrix4x4 projection;
+    projection.perspective(45.0f, aspect, 1.0f, 500.0f);
 
-    m_backgroundProgram->bind();
-    renderBackground();
-    m_backgroundProgram->release();
+    QMatrix4x4 view;
+    const float yawRad = qDegreesToRadians(m_yaw);
+    const float pitchRad = qDegreesToRadians(m_pitch);
+    view.lookAt(QVector3D(
+                    m_distance * qCos(pitchRad) * qCos(yawRad),
+                    m_distance * qSin(pitchRad) - 8.0f,
+                    m_distance * qCos(pitchRad) * qSin(yawRad)),
+                QVector3D(0.0f, -8.0f, 0.0f), QVector3D(0.0f, 1.0f, 0.0f));
 
-    // Calculate model view transformation
-    QMatrix4x4 matrix;
-    float yawRad = qDegreesToRadians(m_yaw);
-    float pitchRad = qDegreesToRadians(m_pitch);
-    matrix.lookAt(QVector3D(                                       //
-                      m_distance * qCos(pitchRad) * qCos(yawRad),  //
-                      m_distance * qSin(pitchRad) - 8,             //
-                      m_distance * qCos(pitchRad) * qSin(yawRad)),
-                  QVector3D(0, -8, 0), QVector3D(0, 1, 0));
+    m_scene->draw(projection * view, frame, m_zBuffer);
 
-    // Set modelview-projection matrix
-    m_modelProgram->bind();
-    m_modelProgram->setUniformValue("mvp_matrix", m_projection * matrix);
-
-    m_scene->draw(m_modelProgram);
-    m_modelProgram->release();
+    frame.setDevicePixelRatio(dpr);
+    QPainter painter(this);
+    painter.drawImage(0, 0, frame);
 }
 
 void SkinOpenGLWindow::updateScene(SkinModel* skin)
 {
-    if (skin) {
-        m_pendingSkin = skin->getTexture();
-        m_pendingSlim = (skin->getModel() == SkinModel::SLIM);
-        m_skinDirty = true;
+    if (!skin) {
+        return;
     }
-    if (m_scene && isValid()) {
-        makeCurrent();
+    m_pendingSkin = skin->getTexture();
+    m_pendingSlim = (skin->getModel() == SkinModel::SLIM);
+    m_skinDirty = true;
+    if (m_scene) {
         m_scene->setMode(m_pendingSlim);
         m_scene->setSkin(m_pendingSkin);
         m_skinDirty = false;
-        doneCurrent();
-        update();
-    } else {
-        update();
     }
+    update();
 }
 
 void SkinOpenGLWindow::updateCape(const QImage& cape)
 {
     m_pendingCape = cape;
     m_capeDirty = true;
-    if (m_scene && isValid()) {
-        makeCurrent();
+    if (m_scene) {
         m_scene->setCapeVisible(!m_pendingCape.isNull());
         m_scene->setCape(m_pendingCape);
         m_capeDirty = false;
-        doneCurrent();
-        update();
-    } else {
-        update();
     }
-}
-
-QColor calculateContrastingColor(const QColor& color)
-{
-    auto luma = Rainbow::luma(color);
-    if (luma < 0.5) {
-        constexpr float contrast = 0.05f;
-        return Rainbow::lighten(color, contrast);
-    } else {
-        constexpr float contrast = 0.2f;
-        return Rainbow::darken(color, contrast);
-    }
-}
-
-QImage generateChessboardImage(int width, int height, int tileSize, QColor baseColor)
-{
-    QImage image(width, height, QImage::Format_RGB888);
-    bool isDarkBase = Rainbow::luma(baseColor) < 0.5;
-    float contrast = isDarkBase ? 0.05 : 0.45;
-    auto contrastFunc = std::bind(isDarkBase ? Rainbow::lighten : Rainbow::darken, std::placeholders::_1, contrast, 1.0);
-    auto white = contrastFunc(baseColor);
-    auto black = contrastFunc(calculateContrastingColor(baseColor));
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            bool isWhite = ((x / tileSize) + (y / tileSize)) % 2 == 0;
-            image.setPixelColor(x, y, isWhite ? white : black);
-        }
-    }
-    return image;
-}
-
-void SkinOpenGLWindow::generateBackgroundTexture(int width, int height, int tileSize)
-{
-    m_backgroundTexture = new QOpenGLTexture(generateChessboardImage(width, height, tileSize, m_baseColor));
-    m_backgroundTexture->setMinificationFilter(QOpenGLTexture::Nearest);
-    m_backgroundTexture->setMagnificationFilter(QOpenGLTexture::Nearest);
-}
-
-void SkinOpenGLWindow::renderBackground()
-{
-    glDisable(GL_DEPTH_TEST);
-    glDepthMask(GL_FALSE);  // Disable depth buffer writing
-    m_backgroundTexture->bind();
-    m_backgroundProgram->setUniformValue("texture", 0);
-    m_background->draw(m_backgroundProgram);
-    m_backgroundTexture->release();
-    glDepthMask(GL_TRUE);  // Re-enable depth buffer writing
-    glEnable(GL_DEPTH_TEST);
+    update();
 }
 
 void SkinOpenGLWindow::wheelEvent(QWheelEvent* event)
 {
-    // Adjust distance based on scroll
-    int delta = event->angleDelta().y();  // Positive for scroll up, negative for scroll down
-    m_distance -= delta * 0.01f;          // Adjust sensitivity factor
-    m_distance = qMax(16.f, m_distance);  // Clamp distance
-    update();                             // Trigger a repaint
+    const int delta = event->angleDelta().y();
+    m_distance = std::clamp(m_distance - static_cast<float>(delta) * 0.01f, 18.0f, 120.0f);
+    update();
 }
+
 void SkinOpenGLWindow::setElytraVisible(bool visible)
 {
-    if (m_scene)
+    m_pendingElytra = visible;
+    m_elytraDirty = true;
+    if (m_scene) {
         m_scene->setElytraVisible(visible);
+        m_elytraDirty = false;
+    }
+    update();
 }
 
 bool SkinOpenGLWindow::hasOpenGL()
 {
-    if (!QProcessEnvironment::systemEnvironment()
-             .value(QStringLiteral("%1_DISABLE_GLVULKAN").arg(BuildConfig.LAUNCHER_ENVNAME))
-             .isEmpty()) {
-        return false;
-    }
-
-    QOpenGLContext ctx;
-    return ctx.create();
+    return true;
 }

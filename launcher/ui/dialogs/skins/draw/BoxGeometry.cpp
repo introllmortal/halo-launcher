@@ -18,16 +18,14 @@
 
 #include "BoxGeometry.h"
 
+#include <QColor>
 #include <QList>
 #include <QMatrix4x4>
 #include <QVector2D>
 #include <QVector3D>
-
-struct VertexData {
-    QVector4D position;
-    QVector2D texCoord;
-    VertexData(const QVector4D& pos, const QVector2D& tex) : position(pos), texCoord(tex) {}
-};
+#include <algorithm>
+#include <array>
+#include <cmath>
 
 // For cube we would need only 8 vertices but we have to
 // duplicate vertex for each face because texture coordinate
@@ -69,32 +67,6 @@ static const QList<QVector4D> vertices = {
     QVector4D(0.5f, 0.5f, -0.5f, 1.0f),   // v23
 };
 
-// Indices for drawing cube faces using triangle strips.
-// Triangle strips can be connected by duplicating indices
-// between the strips. If connecting strips have opposite
-// vertex order then last index of the first strip and first
-// index of the second strip needs to be duplicated. If
-// connecting strips have same vertex order then only last
-// index of the first strip needs to be duplicated.
-static const QList<GLushort> indices = {
-    0,  1,  2,  3,  3,       // Face 0 - triangle strip ( v0,  v1,  v2,  v3)
-    4,  4,  5,  6,  7,  7,   // Face 1 - triangle strip ( v4,  v5,  v6,  v7)
-    8,  8,  9,  10, 11, 11,  // Face 2 - triangle strip ( v8,  v9, v10, v11)
-    12, 12, 13, 14, 15, 15,  // Face 3 - triangle strip (v12, v13, v14, v15)
-    16, 16, 17, 18, 19, 19,  // Face 4 - triangle strip (v16, v17, v18, v19)
-    20, 20, 21, 22, 23       // Face 5 - triangle strip (v20, v21, v22, v23)
-};
-
-static const QList<VertexData> planeVertices = {
-    { QVector4D(-1.0f, -1.0f, -0.5f, 1.0f), QVector2D(0.0f, 0.0f) },  // Bottom-left
-    { QVector4D(1.0f, -1.0f, -0.5f, 1.0f), QVector2D(1.0f, 0.0f) },   // Bottom-right
-    { QVector4D(-1.0f, 1.0f, -0.5f, 1.0f), QVector2D(0.0f, 1.0f) },   // Top-left
-    { QVector4D(1.0f, 1.0f, -0.5f, 1.0f), QVector2D(1.0f, 1.0f) },    // Top-right
-};
-static const QList<GLushort> planeIndices = {
-    0, 1, 2, 3, 3  // Face 0 - triangle strip ( v0,  v1,  v2,  v3)
-};
-
 QList<QVector4D> transformVectors(const QMatrix4x4& matrix, const QList<QVector4D>& vectors)
 {
     QList<QVector4D> transformedVectors;
@@ -117,10 +89,10 @@ QList<QVector2D> getCubeUVs(float u, float v, float width, float height, float d
 {
     auto toFaceVertices = [textureHeight, textureWidth](float x1, float y1, float x2, float y2) -> QList<QVector2D> {
         return {
-            QVector2D(x1 / textureWidth, 1.0 - y2 / textureHeight),
-            QVector2D(x2 / textureWidth, 1.0 - y2 / textureHeight),
-            QVector2D(x2 / textureWidth, 1.0 - y1 / textureHeight),
-            QVector2D(x1 / textureWidth, 1.0 - y1 / textureHeight),
+            QVector2D(x1 / textureWidth, 1.0f - y2 / textureHeight),
+            QVector2D(x2 / textureWidth, 1.0f - y2 / textureHeight),
+            QVector2D(x2 / textureWidth, 1.0f - y1 / textureHeight),
+            QVector2D(x1 / textureWidth, 1.0f - y1 / textureHeight),
         };
     };
 
@@ -167,11 +139,10 @@ QList<QVector2D> getCubeUVs(float u, float v, float width, float height, float d
         back[3],
         back[2],
     };
-    // Create a new array to hold the modified UV data
+
     QList<QVector2D> uvData;
     uvData.reserve(24);
 
-    // Iterate over the arrays and copy the data to newUVData
     for (const auto& uvArray : { uvFront, uvRight, uvBack, uvLeft, uvBottom, uvTop }) {
         uvData.append(uvArray);
     }
@@ -179,17 +150,136 @@ QList<QVector2D> getCubeUVs(float u, float v, float width, float height, float d
     return uvData;
 }
 
-namespace opengl {
-BoxGeometry::BoxGeometry(QVector3D size, QVector3D position)
-    : QOpenGLFunctions(), m_indexBuf(QOpenGLBuffer::IndexBuffer), m_size(size), m_position(position)
-{
-    initializeOpenGLFunctions();
+namespace {
+struct ClipVertex {
+    QVector4D clip;
+    QVector2D uv;
+};
 
-    // Generate VAO and VBOs
-    m_vao.create();
-    m_vertexBuf.create();
-    m_indexBuf.create();
+void rasterizeTriangle(const std::array<ClipVertex, 3>& tri, const QImage& texture, QImage& target, std::vector<float>& zBuffer)
+{
+    const int width = target.width();
+    const int height = target.height();
+    const int texW = texture.width();
+    const int texH = texture.height();
+
+    std::array<float, 3> sx{};
+    std::array<float, 3> sy{};
+    std::array<float, 3> ndcZ{};
+    std::array<float, 3> invW{};
+    std::array<float, 3> uOverW{};
+    std::array<float, 3> vOverW{};
+
+    for (int i = 0; i < 3; ++i) {
+        const float w = tri[i].clip.w();
+        invW[i] = 1.0f / w;
+        const float nx = tri[i].clip.x() * invW[i];
+        const float ny = tri[i].clip.y() * invW[i];
+        ndcZ[i] = tri[i].clip.z() * invW[i];
+        sx[i] = (nx * 0.5f + 0.5f) * static_cast<float>(width);
+        sy[i] = (0.5f - ny * 0.5f) * static_cast<float>(height);
+        uOverW[i] = tri[i].uv.x() * invW[i];
+        vOverW[i] = tri[i].uv.y() * invW[i];
+    }
+
+    const float area = (sx[1] - sx[0]) * (sy[2] - sy[0]) - (sy[1] - sy[0]) * (sx[2] - sx[0]);
+    if (std::abs(area) < 1e-5f) {
+        return;
+    }
+    const float invArea = 1.0f / area;
+
+    const int minX = std::max(0, static_cast<int>(std::floor(std::min({ sx[0], sx[1], sx[2] }))));
+    const int maxX = std::min(width - 1, static_cast<int>(std::ceil(std::max({ sx[0], sx[1], sx[2] }))));
+    const int minY = std::max(0, static_cast<int>(std::floor(std::min({ sy[0], sy[1], sy[2] }))));
+    const int maxY = std::min(height - 1, static_cast<int>(std::ceil(std::max({ sy[0], sy[1], sy[2] }))));
+
+    for (int y = minY; y <= maxY; ++y) {
+        const float py = static_cast<float>(y) + 0.5f;
+        auto* dstRow = reinterpret_cast<QRgb*>(target.scanLine(y));
+        const int rowOffset = y * width;
+
+        for (int x = minX; x <= maxX; ++x) {
+            const float px = static_cast<float>(x) + 0.5f;
+
+            const float e0 = ((sx[2] - sx[1]) * (py - sy[1]) - (sy[2] - sy[1]) * (px - sx[1])) * invArea;
+            const float e1 = ((sx[0] - sx[2]) * (py - sy[2]) - (sy[0] - sy[2]) * (px - sx[2])) * invArea;
+            const float e2 = 1.0f - e0 - e1;
+
+            if (e0 < -1e-5f || e1 < -1e-5f || e2 < -1e-5f) {
+                continue;
+            }
+
+            const float z = e0 * ndcZ[0] + e1 * ndcZ[1] + e2 * ndcZ[2];
+            const int idx = rowOffset + x;
+            if (z < -1.0f || z > 1.0f || z >= zBuffer[idx]) {
+                continue;
+            }
+
+            const float wRecip = e0 * invW[0] + e1 * invW[1] + e2 * invW[2];
+            if (wRecip <= 1e-6f) {
+                continue;
+            }
+            const float invWRecip = 1.0f / wRecip;
+            const float u = (e0 * uOverW[0] + e1 * uOverW[1] + e2 * uOverW[2]) * invWRecip;
+            const float v = (e0 * vOverW[0] + e1 * vOverW[1] + e2 * vOverW[2]) * invWRecip;
+
+            const int tx = std::clamp(static_cast<int>(std::floor(u * static_cast<float>(texW))), 0, texW - 1);
+            const int ty = std::clamp(static_cast<int>(std::floor((1.0f - v) * static_cast<float>(texH))), 0, texH - 1);
+
+            const auto* srcRow = reinterpret_cast<const QRgb*>(texture.constScanLine(ty));
+            const QRgb src = srcRow[tx];
+            const int sa = qAlpha(src);
+            if (sa < 26) {
+                continue;
+            }
+
+            zBuffer[idx] = z;
+            if (sa == 255) {
+                dstRow[x] = src;
+            } else {
+                const QRgb dst = dstRow[x];
+                const int invA = 255 - sa;
+                const int r = (qRed(src) * sa + qRed(dst) * invA) / 255;
+                const int g = (qGreen(src) * sa + qGreen(dst) * invA) / 255;
+                const int b = (qBlue(src) * sa + qBlue(dst) * invA) / 255;
+                dstRow[x] = qRgba(r, g, b, 255);
+            }
+        }
+    }
 }
+
+void clipAndRasterize(const std::array<ClipVertex, 3>& tri, const QImage& texture, QImage& target, std::vector<float>& zBuffer)
+{
+    constexpr float nearW = 0.25f;
+    std::array<ClipVertex, 4> clipped{};
+    int count = 0;
+
+    for (int i = 0; i < 3; ++i) {
+        const ClipVertex& cur = tri[i];
+        const ClipVertex& prev = tri[(i + 2) % 3];
+        const bool curInside = cur.clip.w() >= nearW;
+        const bool prevInside = prev.clip.w() >= nearW;
+
+        if (curInside != prevInside) {
+            const float t = (nearW - prev.clip.w()) / (cur.clip.w() - prev.clip.w());
+            clipped[count++] = {
+                prev.clip + (cur.clip - prev.clip) * t,
+                prev.uv + (cur.uv - prev.uv) * t,
+            };
+        }
+        if (curInside) {
+            clipped[count++] = cur;
+        }
+    }
+
+    for (int i = 1; i + 1 < count; ++i) {
+        rasterizeTriangle({ clipped[0], clipped[i], clipped[i + 1] }, texture, target, zBuffer);
+    }
+}
+}  // namespace
+
+namespace opengl {
+BoxGeometry::BoxGeometry(QVector3D size, QVector3D position) : m_size(size), m_position(position) {}
 
 BoxGeometry::BoxGeometry(QVector3D size, QVector3D position, QPoint uv, QVector3D textureDim, QSize textureSize)
     : BoxGeometry(size, position)
@@ -197,90 +287,40 @@ BoxGeometry::BoxGeometry(QVector3D size, QVector3D position, QPoint uv, QVector3
     initGeometry(uv.x(), uv.y(), textureDim.x(), textureDim.y(), textureDim.z(), textureSize.width(), textureSize.height());
 }
 
-BoxGeometry::~BoxGeometry()
-{
-    m_vertexBuf.destroy();
-    m_indexBuf.destroy();
-    if (m_vao.isCreated()) {
-        m_vao.destroy();
-    }
-}
+BoxGeometry::~BoxGeometry() = default;
 
-void BoxGeometry::draw(QOpenGLShaderProgram* program)
+void BoxGeometry::rasterize(const QMatrix4x4& vpMatrix, const QImage& texture, QImage& target, std::vector<float>& zBuffer) const
 {
-    if (!program) {
+    if (m_vertices.size() < 4 || texture.isNull() || target.isNull()) {
         return;
     }
 
-    if (m_vao.isCreated()) {
-        m_vao.bind();
-    }
+    const QMatrix4x4 mvp = vpMatrix * m_matrix;
+    for (int base = 0; base + 3 < m_vertices.size(); base += 4) {
+        const ClipVertex v0{ mvp * m_vertices[base].position, m_vertices[base].texCoord };
+        const ClipVertex v1{ mvp * m_vertices[base + 1].position, m_vertices[base + 1].texCoord };
+        const ClipVertex v2{ mvp * m_vertices[base + 2].position, m_vertices[base + 2].texCoord };
+        const ClipVertex v3{ mvp * m_vertices[base + 3].position, m_vertices[base + 3].texCoord };
 
-    // Tell OpenGL which VBOs to use
-    program->setUniformValue("model_matrix", m_matrix);
-    m_vertexBuf.bind();
-    m_indexBuf.bind();
-
-    // Offset for position
-    quintptr offset = 0;
-
-    // Tell OpenGL programmable pipeline how to locate vertex position data
-    int vertexLocation = program->attributeLocation("a_position");
-    if (vertexLocation >= 0) {
-        program->enableAttributeArray(vertexLocation);
-        program->setAttributeBuffer(vertexLocation, GL_FLOAT, static_cast<int>(offset), 4, static_cast<int>(sizeof(VertexData)));
+        clipAndRasterize({ v0, v1, v2 }, texture, target, zBuffer);
+        clipAndRasterize({ v2, v1, v3 }, texture, target, zBuffer);
     }
-
-    // Offset for texture coordinate
-    offset += sizeof(QVector4D);
-    // Tell OpenGL programmable pipeline how to locate vertex texture coordinate data
-    int texcoordLocation = program->attributeLocation("a_texcoord");
-    if (texcoordLocation >= 0) {
-        program->enableAttributeArray(texcoordLocation);
-        program->setAttributeBuffer(texcoordLocation, GL_FLOAT, static_cast<int>(offset), 2, static_cast<int>(sizeof(VertexData)));
-    }
-
-    // Draw cube geometry using indices from VBO 1
-    glDrawElements(GL_TRIANGLE_STRIP, m_indecesCount, GL_UNSIGNED_SHORT, nullptr);
-
-    if (vertexLocation >= 0) {
-        program->disableAttributeArray(vertexLocation);
-    }
-    if (texcoordLocation >= 0) {
-        program->disableAttributeArray(texcoordLocation);
-    }
-    if (m_vao.isCreated()) {
-        m_vao.release();
-    }
-    m_indexBuf.release();
-    m_vertexBuf.release();
 }
 
 void BoxGeometry::initGeometry(float u, float v, float width, float height, float depth, float textureWidth, float textureHeight)
 {
     auto textureCord = getCubeUVs(u, v, width, height, depth, textureWidth, textureHeight);
 
-    // this should not be needed to be done on each render for most of the objects
     QMatrix4x4 transformation;
     transformation.translate(m_position);
     transformation.scale(m_size);
     auto positions = transformVectors(transformation, vertices);
 
-    QList<VertexData> verticesData;
-    verticesData.reserve(positions.size());  // Reserve space for efficiency
-
+    m_vertices.clear();
+    m_vertices.reserve(positions.size());
     for (int i = 0; i < positions.size(); ++i) {
-        verticesData.append(VertexData(positions[i], textureCord[i]));
+        m_vertices.append({ positions[i], textureCord[i] });
     }
-
-    // Transfer vertex data to VBO 0
-    m_vertexBuf.bind();
-    m_vertexBuf.allocate(verticesData.constData(), static_cast<int>(verticesData.size() * sizeof(VertexData)));
-
-    // Transfer index data to VBO 1
-    m_indexBuf.bind();
-    m_indexBuf.allocate(indices.constData(), static_cast<int>(indices.size() * sizeof(GLushort)));
-    m_indecesCount = indices.size();
 }
 
 void BoxGeometry::rotate(float angle, const QVector3D& vector)
@@ -291,16 +331,12 @@ void BoxGeometry::rotate(float angle, const QVector3D& vector)
 BoxGeometry* BoxGeometry::Plane()
 {
     auto b = new BoxGeometry(QVector3D(), QVector3D());
-
-    // Transfer vertex data to VBO 0
-    b->m_vertexBuf.bind();
-    b->m_vertexBuf.allocate(planeVertices.constData(), static_cast<int>(planeVertices.size() * sizeof(VertexData)));
-
-    // Transfer index data to VBO 1
-    b->m_indexBuf.bind();
-    b->m_indexBuf.allocate(planeIndices.constData(), static_cast<int>(planeIndices.size() * sizeof(GLushort)));
-    b->m_indecesCount = planeIndices.size();
-
+    b->m_vertices = {
+        { QVector4D(-1.0f, -1.0f, -0.5f, 1.0f), QVector2D(0.0f, 0.0f) },
+        { QVector4D(1.0f, -1.0f, -0.5f, 1.0f), QVector2D(1.0f, 0.0f) },
+        { QVector4D(-1.0f, 1.0f, -0.5f, 1.0f), QVector2D(0.0f, 1.0f) },
+        { QVector4D(1.0f, 1.0f, -0.5f, 1.0f), QVector2D(1.0f, 1.0f) },
+    };
     return b;
 }
 
