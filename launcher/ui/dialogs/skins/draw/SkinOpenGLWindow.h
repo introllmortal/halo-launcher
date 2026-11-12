@@ -22,7 +22,7 @@
 #include <QOpenGLFunctions>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLTexture>
-#include <QOpenGLWindow>
+#include <QOpenGLWidget>
 #include <QVector2D>
 #include "minecraft/skins/SkinModel.h"
 #include "ui/dialogs/skins/draw/BoxGeometry.h"
@@ -34,11 +34,11 @@ class SkinProvider {
     virtual SkinModel* getSelectedSkin() = 0;
     virtual QHash<QString, QImage> capes() = 0;
 };
-class SkinOpenGLWindow : public QOpenGLWindow, protected QOpenGLFunctions {
+class SkinOpenGLWindow : public QOpenGLWidget, protected QOpenGLFunctions {
     Q_OBJECT
 
    public:
-    SkinOpenGLWindow(SkinProvider* parent, QColor color);
+    SkinOpenGLWindow(SkinProvider* parent, QColor color, QWidget* widgetParent = nullptr);
     virtual ~SkinOpenGLWindow();
 
     void updateScene(SkinModel* skin);
@@ -46,6 +46,9 @@ class SkinOpenGLWindow : public QOpenGLWindow, protected QOpenGLFunctions {
     void setElytraVisible(bool visible);
 
     static bool hasOpenGL();
+
+   signals:
+    void renderFailed();
 
    protected:
     void mousePressEvent(QMouseEvent* e) override;
@@ -57,14 +60,14 @@ class SkinOpenGLWindow : public QOpenGLWindow, protected QOpenGLFunctions {
     void resizeGL(int w, int h) override;
     void paintGL() override;
 
-    void initShaders();
+    bool initShaders();
 
     void generateBackgroundTexture(int width, int height, int tileSize);
     void renderBackground();
 
    private:
-    QOpenGLShaderProgram* m_modelProgram;
-    QOpenGLShaderProgram* m_backgroundProgram;
+    QOpenGLShaderProgram* m_modelProgram = nullptr;
+    QOpenGLShaderProgram* m_backgroundProgram = nullptr;
     opengl::Scene* m_scene = nullptr;
 
     QMatrix4x4 m_projection;
@@ -72,11 +75,10 @@ class SkinOpenGLWindow : public QOpenGLWindow, protected QOpenGLFunctions {
     QVector2D m_mousePosition;
 
     bool m_isMousePressed = false;
+    bool m_glError = false;
     float m_distance = 48;
     float m_yaw = 90;   // Horizontal rotation angle
     float m_pitch = 0;  // Vertical rotation angle
-
-    bool m_isFirstFrame = true;
 
     opengl::BoxGeometry* m_background = nullptr;
     QOpenGLTexture* m_backgroundTexture = nullptr;

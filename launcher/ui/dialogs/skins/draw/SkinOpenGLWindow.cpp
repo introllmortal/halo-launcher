@@ -18,8 +18,10 @@
 
 #include "ui/dialogs/skins/draw/SkinOpenGLWindow.h"
 
+#include <QDebug>
 #include <QMouseEvent>
 #include <QOpenGLBuffer>
+#include <QOpenGLContext>
 #include <QProcessEnvironment>
 #include <QVector2D>
 #include <QVector3D>
@@ -32,48 +34,51 @@
 #include "ui/dialogs/skins/draw/BoxGeometry.h"
 #include "ui/dialogs/skins/draw/Scene.h"
 
-SkinOpenGLWindow::SkinOpenGLWindow(SkinProvider* parent, QColor color)
-    : QOpenGLWindow(), QOpenGLFunctions(), m_baseColor(color), m_parent(parent)
+SkinOpenGLWindow::SkinOpenGLWindow(SkinProvider* parent, QColor color, QWidget* widgetParent)
+    : QOpenGLWidget(widgetParent), QOpenGLFunctions(), m_baseColor(color), m_parent(parent)
 {
     QSurfaceFormat format = QSurfaceFormat::defaultFormat();
     format.setDepthBufferSize(24);
     setFormat(format);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setMinimumSize(120, 160);
 }
 
 SkinOpenGLWindow::~SkinOpenGLWindow()
 {
-    // Make sure the context is current when deleting the texture
-    // and the buffers.
-    makeCurrent();
-    // double check if resources were initialized because they are not
-    // initialized together with the object
-    if (m_scene) {
-        delete m_scene;
+    const bool hasContext = isValid();
+    if (hasContext) {
+        makeCurrent();
     }
-    if (m_background) {
-        delete m_background;
-    }
+    delete m_scene;
+    m_scene = nullptr;
+    delete m_background;
+    m_background = nullptr;
     if (m_backgroundTexture) {
-        if (m_backgroundTexture->isCreated()) {
+        if (hasContext && m_backgroundTexture->isCreated()) {
             m_backgroundTexture->destroy();
         }
         delete m_backgroundTexture;
+        m_backgroundTexture = nullptr;
     }
-    if (m_modelProgram) {
-        if (m_modelProgram->isLinked()) {
-            m_modelProgram->release();
+    auto cleanupProgram = [hasContext](QOpenGLShaderProgram*& program) {
+        if (!program) {
+            return;
         }
-        m_modelProgram->removeAllShaders();
-        delete m_modelProgram;
-    }
-    if (m_backgroundProgram) {
-        if (m_backgroundProgram->isLinked()) {
-            m_backgroundProgram->release();
+        if (hasContext) {
+            if (program->isLinked()) {
+                program->release();
+            }
+            program->removeAllShaders();
         }
-        m_backgroundProgram->removeAllShaders();
-        delete m_backgroundProgram;
+        delete program;
+        program = nullptr;
+    };
+    cleanupProgram(m_modelProgram);
+    cleanupProgram(m_backgroundProgram);
+    if (hasContext) {
+        doneCurrent();
     }
-    doneCurrent();
 }
 
 void SkinOpenGLWindow::mousePressEvent(QMouseEvent* e)
@@ -118,9 +123,13 @@ void SkinOpenGLWindow::initializeGL()
 {
     initializeOpenGLFunctions();
 
-    glClearColor(0, 0, 1, 1);
+    glClearColor(m_baseColor.redF(), m_baseColor.greenF(), m_baseColor.blueF(), 1.0f);
 
-    initShaders();
+    if (!initShaders()) {
+        m_glError = true;
+        emit renderFailed();
+        return;
+    }
 
     generateBackgroundTexture(32, 32, 1);
 
@@ -144,46 +153,39 @@ void SkinOpenGLWindow::initializeGL()
 
     m_scene = new opengl::Scene(skin, slim, cape);
     m_background = opengl::BoxGeometry::Plane();
-    glEnable(GL_TEXTURE_2D);
 }
 
-void SkinOpenGLWindow::initShaders()
+bool SkinOpenGLWindow::initShaders()
 {
-    // Skin model shaders
-    m_modelProgram = new QOpenGLShaderProgram(this);
-    // Compile vertex shader
-    if (!m_modelProgram->addCacheableShaderFromSourceFile(QOpenGLShader::Vertex, ":/shaders/vshader_skin_model.glsl"))
-        close();
+    auto loadProgram = [this](QOpenGLShaderProgram*& program, const char* vshader, const char* fshader) -> bool {
+        program = new QOpenGLShaderProgram(this);
+        if (!program->addCacheableShaderFromSourceFile(QOpenGLShader::Vertex, vshader)) {
+            qWarning() << "SkinOpenGLWindow: failed to compile vertex shader" << vshader << program->log();
+            return false;
+        }
+        if (!program->addCacheableShaderFromSourceFile(QOpenGLShader::Fragment, fshader)) {
+            qWarning() << "SkinOpenGLWindow: failed to compile fragment shader" << fshader << program->log();
+            return false;
+        }
+        if (!program->link()) {
+            qWarning() << "SkinOpenGLWindow: failed to link shader program:" << program->log();
+            return false;
+        }
+        if (!program->bind()) {
+            qWarning() << "SkinOpenGLWindow: failed to bind shader program:" << program->log();
+            return false;
+        }
+        program->release();
+        return true;
+    };
 
-    // Compile fragment shader
-    if (!m_modelProgram->addCacheableShaderFromSourceFile(QOpenGLShader::Fragment, ":/shaders/fshader.glsl"))
-        close();
-
-    // Link shader pipeline
-    if (!m_modelProgram->link())
-        close();
-
-    // Bind shader pipeline for use
-    if (!m_modelProgram->bind())
-        close();
-
-    // Background shaders
-    m_backgroundProgram = new QOpenGLShaderProgram(this);
-    // Compile vertex shader
-    if (!m_backgroundProgram->addCacheableShaderFromSourceFile(QOpenGLShader::Vertex, ":/shaders/vshader_skin_background.glsl"))
-        close();
-
-    // Compile fragment shader
-    if (!m_backgroundProgram->addCacheableShaderFromSourceFile(QOpenGLShader::Fragment, ":/shaders/fshader.glsl"))
-        close();
-
-    // Link shader pipeline
-    if (!m_backgroundProgram->link())
-        close();
-
-    // Bind shader pipeline for use (verification)
-    if (!m_backgroundProgram->bind())
-        close();
+    if (!loadProgram(m_modelProgram, ":/shaders/vshader_skin_model.glsl", ":/shaders/fshader.glsl")) {
+        return false;
+    }
+    if (!loadProgram(m_backgroundProgram, ":/shaders/vshader_skin_background.glsl", ":/shaders/fshader.glsl")) {
+        return false;
+    }
+    return true;
 }
 
 void SkinOpenGLWindow::resizeGL(int w, int h)
@@ -213,20 +215,18 @@ void SkinOpenGLWindow::resizeGL(int w, int h)
 
 void SkinOpenGLWindow::paintGL()
 {
-    // Adjust the viewport to account for fractional scaling
-    qreal dpr = devicePixelRatio();
-    if (dpr != 1.f) {
-        QSize scaledSize = size() * dpr;
-        glViewport(0, 0, scaledSize.width(), scaledSize.height());
+    if (m_glError || !m_scene || !m_background || !m_modelProgram || !m_backgroundProgram) {
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        return;
     }
 
     // Process any dirty textures while context is current
-    if (m_skinDirty && m_scene) {
+    if (m_skinDirty) {
         m_scene->setMode(m_pendingSlim);
         m_scene->setSkin(m_pendingSkin);
         m_skinDirty = false;
     }
-    if (m_capeDirty && m_scene) {
+    if (m_capeDirty) {
         m_scene->setCapeVisible(!m_pendingCape.isNull());
         m_scene->setCape(m_pendingCape);
         m_capeDirty = false;
@@ -240,7 +240,7 @@ void SkinOpenGLWindow::paintGL()
     glDepthFunc(GL_LESS);
 
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_ALPHA);
 
     m_backgroundProgram->bind();
     renderBackground();
@@ -262,13 +262,6 @@ void SkinOpenGLWindow::paintGL()
 
     m_scene->draw(m_modelProgram);
     m_modelProgram->release();
-
-    // Redraw the first frame; this is necessary because the pixel ratio for Wayland fractional scaling is not negotiated properly on the
-    // first frame
-    if (m_isFirstFrame) {
-        m_isFirstFrame = false;
-        update();
-    }
 }
 
 void SkinOpenGLWindow::updateScene(SkinModel* skin)

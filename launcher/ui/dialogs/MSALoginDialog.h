@@ -49,8 +49,13 @@ class MSALoginDialog : public QDialog {
     void authorizeWithBrowserWithExtra(QString url, QString code, int expiresIn);
 
    private:
+    void handleTaskFailure(bool isDeviceFlow, const QString& reason);
+    void handleTaskSuccess();
+
     shared_qobject_ptr<AuthFlow> m_devicecode_task;
     shared_qobject_ptr<AuthFlow> m_authflow_task;
+    bool m_authflowFailed = false;
+    bool m_devicecodeFailed = false;
 
     QUrl m_url;
 };

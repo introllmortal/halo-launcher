@@ -188,9 +188,9 @@ foreach ($folder in $deltaFolders) {
     if (Test-Path $targetDir) {
         $files = Get-ChildItem -Path $targetDir -Recurse -File | Sort-Object FullName
         foreach ($file in $files) {
-            $relPath = [System.IO.Path]::GetRelativePath($stagedMinecraft, $file.FullName).Replace('\', '/')
+            $relPath = $file.FullName.Substring($stagedMinecraft.Length).TrimStart('\', '/').Replace('\', '/')
             $relPath = $relPath.TrimStart('/')
-            $fileHash = (Get-FileHash -Path $file.FullName -Algorithm SHA1).Hash.ToLowerInvariant()
+            $fileHash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA1).Hash.ToLowerInvariant()
             $fileSize = $file.Length
             $fileUrl = "https://raw.githubusercontent.com/$Repo/v$Version/.minecraft/$relPath"
 
@@ -273,8 +273,7 @@ try {
 # 8. Upload Archive to Release
 Write-Host "[4/5] Uploading $zipFileName to GitHub Release..." -ForegroundColor Yellow
 $uploadUrlTemplate = $releaseResponse.upload_url
-$uploadUri = $uploadUrlTemplate -replace '\{.*\}', ("?name=" + [System.Web.HttpUtility]::UrlEncode($zipFileName))
-Add-Type -AssemblyName System.Web
+$uploadUri = $uploadUrlTemplate -replace '\{.*\}', ("?name=" + [System.Uri]::EscapeDataString($zipFileName))
 
 try {
     Write-Host "Streaming upload via curl ($zipSizeMb MB)..." -ForegroundColor Cyan
@@ -314,7 +313,7 @@ $deltaDownloadUrl = $null
 if (Test-Path $deltaManifestOutPath) {
     Write-Host "[4.1/5] Uploading delta_manifest.json to GitHub Release..." -ForegroundColor Yellow
     $deltaManifestName = "delta_manifest.json"
-    $deltaUploadUri = $uploadUrlTemplate -replace '\{.*\}', ("?name=" + [System.Web.HttpUtility]::UrlEncode($deltaManifestName))
+    $deltaUploadUri = $uploadUrlTemplate -replace '\{.*\}', ("?name=" + [System.Uri]::EscapeDataString($deltaManifestName))
     try {
         $curlArgs = @(
             "-s", "-S",

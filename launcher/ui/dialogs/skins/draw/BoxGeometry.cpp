@@ -185,7 +185,8 @@ BoxGeometry::BoxGeometry(QVector3D size, QVector3D position)
 {
     initializeOpenGLFunctions();
 
-    // Generate 2 VBOs
+    // Generate VAO and VBOs
+    m_vao.create();
     m_vertexBuf.create();
     m_indexBuf.create();
 }
@@ -200,10 +201,21 @@ BoxGeometry::~BoxGeometry()
 {
     m_vertexBuf.destroy();
     m_indexBuf.destroy();
+    if (m_vao.isCreated()) {
+        m_vao.destroy();
+    }
 }
 
 void BoxGeometry::draw(QOpenGLShaderProgram* program)
 {
+    if (!program) {
+        return;
+    }
+
+    if (m_vao.isCreated()) {
+        m_vao.bind();
+    }
+
     // Tell OpenGL which VBOs to use
     program->setUniformValue("model_matrix", m_matrix);
     m_vertexBuf.bind();
@@ -214,18 +226,34 @@ void BoxGeometry::draw(QOpenGLShaderProgram* program)
 
     // Tell OpenGL programmable pipeline how to locate vertex position data
     int vertexLocation = program->attributeLocation("a_position");
-    program->enableAttributeArray(vertexLocation);
-    program->setAttributeBuffer(vertexLocation, GL_FLOAT, offset, 4, sizeof(VertexData));
+    if (vertexLocation >= 0) {
+        program->enableAttributeArray(vertexLocation);
+        program->setAttributeBuffer(vertexLocation, GL_FLOAT, static_cast<int>(offset), 4, static_cast<int>(sizeof(VertexData)));
+    }
 
     // Offset for texture coordinate
     offset += sizeof(QVector4D);
     // Tell OpenGL programmable pipeline how to locate vertex texture coordinate data
     int texcoordLocation = program->attributeLocation("a_texcoord");
-    program->enableAttributeArray(texcoordLocation);
-    program->setAttributeBuffer(texcoordLocation, GL_FLOAT, offset, 2, sizeof(VertexData));
+    if (texcoordLocation >= 0) {
+        program->enableAttributeArray(texcoordLocation);
+        program->setAttributeBuffer(texcoordLocation, GL_FLOAT, static_cast<int>(offset), 2, static_cast<int>(sizeof(VertexData)));
+    }
 
     // Draw cube geometry using indices from VBO 1
     glDrawElements(GL_TRIANGLE_STRIP, m_indecesCount, GL_UNSIGNED_SHORT, nullptr);
+
+    if (vertexLocation >= 0) {
+        program->disableAttributeArray(vertexLocation);
+    }
+    if (texcoordLocation >= 0) {
+        program->disableAttributeArray(texcoordLocation);
+    }
+    if (m_vao.isCreated()) {
+        m_vao.release();
+    }
+    m_indexBuf.release();
+    m_vertexBuf.release();
 }
 
 void BoxGeometry::initGeometry(float u, float v, float width, float height, float depth, float textureWidth, float textureHeight)

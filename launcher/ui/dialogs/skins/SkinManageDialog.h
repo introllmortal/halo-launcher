@@ -61,6 +61,7 @@ class SkinManageDialog : public QDialog, public SkinProvider {
 
    private:
     void setupCapes();
+    void fallbackTo2DPreview();
 
    private:
     MinecraftAccountPtr m_acct;

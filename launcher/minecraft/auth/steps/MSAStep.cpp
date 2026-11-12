@@ -149,6 +149,7 @@ MSAStep::MSAStep(AccountData* data, bool silent, QString clientId, QString scope
     });
     connect(&m_oauth2, &QOAuth2AuthorizationCodeFlow::authorizeWithBrowser, this, &MSAStep::authorizeWithBrowser);
     connect(&m_oauth2, &QOAuth2AuthorizationCodeFlow::requestFailed, this, [this, silent](const QAbstractOAuth2::Error err) {
+        qWarning() << "OAuth2 request failed with error:" << static_cast<int>(err);
         auto state = AccountTaskState::STATE_FAILED_HARD;
         if (m_oauth2.status() == QAbstractOAuth::Status::Granted || silent) {
             if (err == QAbstractOAuth2::Error::NetworkError) {

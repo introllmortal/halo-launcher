@@ -22,6 +22,7 @@
 #include <QOpenGLBuffer>
 #include <QOpenGLFunctions>
 #include <QOpenGLShaderProgram>
+#include <QOpenGLVertexArrayObject>
 #include <QVector3D>
 
 namespace opengl {
@@ -39,11 +40,12 @@ class BoxGeometry : protected QOpenGLFunctions {
     void scale(const QVector3D& vector);
 
    private:
+    QOpenGLVertexArrayObject m_vao;
     QOpenGLBuffer m_vertexBuf;
     QOpenGLBuffer m_indexBuf;
     QVector3D m_size;
     QVector3D m_position;
     QMatrix4x4 m_matrix;
-    GLsizei m_indecesCount;
+    GLsizei m_indecesCount = 0;
 };
 }  // namespace opengl

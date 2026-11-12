@@ -32,7 +32,7 @@ MinecraftAccountPtr ElyLoginDialog::newAccount(QWidget* parent)
 ElyLoginDialog::ElyLoginDialog(QWidget* parent) : MSALoginDialog(parent)
 {
     m_accountType = AccountType::Ely;
-    m_linkUrl = "http://account.ely.by/code";
+    m_linkUrl = "https://account.ely.by/code";
 
     setWindowTitle(tr("Add Ely.by account"));
     ui->loginButton->setText(tr("Sign in with Ely.by"));

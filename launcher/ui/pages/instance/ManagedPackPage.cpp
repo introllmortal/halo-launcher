@@ -546,6 +546,9 @@ void ManagedPackPage::updatePack(const QUrl& url, QString versionID, QString ver
 
     // Run our task then handle the result
     auto did_succeed = runUpdateTask(extracted);
+    if (did_succeed) {
+        m_inst->reloadSettings();
+    }
     onUpdateTaskCompleted(did_succeed);
 }
 

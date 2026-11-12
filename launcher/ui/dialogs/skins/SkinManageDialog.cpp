@@ -61,10 +61,12 @@ SkinManageDialog::SkinManageDialog(QWidget* parent, MinecraftAccountPtr acct)
     m_ui->setupUi(this);
 
     if (SkinOpenGLWindow::hasOpenGL()) {
-        m_skinPreview = new SkinOpenGLWindow(this, palette().color(QPalette::Normal, QPalette::Base));
+        m_skinPreview = new SkinOpenGLWindow(this, palette().color(QPalette::Normal, QPalette::Base), this);
+        connect(m_skinPreview, &SkinOpenGLWindow::renderFailed, this, &SkinManageDialog::fallbackTo2DPreview, Qt::QueuedConnection);
     } else {
         m_skinPreviewLabel = new QLabel(this);
         m_skinPreviewLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        m_skinPreviewLabel->setAlignment(Qt::AlignCenter);
     }
 
     setWindowModality(Qt::WindowModal);
@@ -123,7 +125,7 @@ SkinManageDialog::SkinManageDialog(QWidget* parent, MinecraftAccountPtr acct)
     m_ui->buttonBox->button(QDialogButtonBox::Ok)->setText(tr("OK"));
 
     if (m_skinPreview) {
-        m_ui->skinLayout->insertWidget(0, QWidget::createWindowContainer(m_skinPreview, this));
+        m_ui->skinLayout->insertWidget(0, m_skinPreview);
     } else {
         m_ui->skinLayout->insertWidget(0, m_skinPreviewLabel);
     }
@@ -132,9 +134,6 @@ SkinManageDialog::SkinManageDialog(QWidget* parent, MinecraftAccountPtr acct)
 SkinManageDialog::~SkinManageDialog()
 {
     delete m_ui;
-    if (m_skinPreview) {
-        delete m_skinPreview;
-    }
 }
 
 void SkinManageDialog::activated(QModelIndex index)
@@ -610,6 +609,29 @@ SkinModel* SkinManageDialog::getSelectedSkin()
         return skin;
     }
     return nullptr;
+}
+
+void SkinManageDialog::fallbackTo2DPreview()
+{
+    if (!m_skinPreview) {
+        return;
+    }
+    auto* failedPreview = m_skinPreview;
+    m_skinPreview = nullptr;
+    m_ui->skinLayout->removeWidget(failedPreview);
+    failedPreview->hide();
+    failedPreview->deleteLater();
+
+    if (!m_skinPreviewLabel) {
+        m_skinPreviewLabel = new QLabel(this);
+        m_skinPreviewLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        m_skinPreviewLabel->setAlignment(Qt::AlignCenter);
+    }
+    m_ui->skinLayout->insertWidget(0, m_skinPreviewLabel);
+    if (auto skin = getSelectedSkin()) {
+        const QSize targetSize = m_skinPreviewLabel->size().isEmpty() ? QSize(120, 160) : m_skinPreviewLabel->size();
+        m_skinPreviewLabel->setPixmap(QPixmap::fromImage(skin->getPreview()).scaled(targetSize, Qt::KeepAspectRatio, Qt::FastTransformation));
+    }
 }
 
 QHash<QString, QImage> SkinManageDialog::capes()

@@ -1255,6 +1255,134 @@ void ensureManifestUpdated(const QString& destination, const QString& staging)
         out.close();
     }
 }
+
+QString findGameRootFolder(const QString& root)
+{
+    QStringList candidates = {
+        FS::PathCombine(root, ".minecraft"),
+        FS::PathCombine(root, "minecraft")
+    };
+    for (const auto& candidate : candidates) {
+        if (QDir(candidate).exists()) {
+            return candidate;
+        }
+    }
+    return QString();
+}
+
+bool isSafePackOverrideRelPath(const QString& rawPath)
+{
+    QString clean = QDir::cleanPath(QString(rawPath).replace('\\', '/'));
+    if (clean.isEmpty() || clean.startsWith('/') || clean.contains("..") || clean.contains(':')) {
+        return false;
+    }
+
+    static const QStringList protectedExact = {
+        "options.txt", "optionsshaders.txt", "servers.dat", "servers.dat_old",
+        "usercache.json", "usernamecache.json", "hotbar.nbt", "defaultoptions.journal.json"
+    };
+    for (const auto& name : protectedExact) {
+        if (clean.compare(name, Qt::CaseInsensitive) == 0) {
+            return false;
+        }
+    }
+
+    static const QStringList protectedPrefixes = {
+        "saves/", "screenshots/", "logs/", "crash-reports/", "backups/", ".delta_staging/", ".delta_backup/"
+    };
+    for (const auto& prefix : protectedPrefixes) {
+        if (clean.startsWith(prefix, Qt::CaseInsensitive)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+QStringList collectGameRootRelativeFiles(const QString& gameRoot)
+{
+    QStringList files;
+    QDir rootDir(gameRoot);
+    QDirIterator it(gameRoot, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        it.next();
+        QString rel = QDir::fromNativeSeparators(rootDir.relativeFilePath(it.filePath()));
+        if (rel == "manifest_mods.json" || rel == "pack_manifest.json" || rel == "pack_overrides.txt") {
+            continue;
+        }
+        if (isSafePackOverrideRelPath(rel)) {
+            files.append(rel);
+        }
+    }
+    files.sort();
+    return files;
+}
+
+void cleanupOutdatedPackOverrides(const QString& destination, const QString& staging)
+{
+    QString overridesFile = FS::PathCombine(destination, "pack_overrides.txt");
+    QFile file(overridesFile);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return;
+    }
+
+    QString destGameRoot = findGameRootFolder(destination);
+    QString newGameRoot = findGameRootFolder(staging);
+    if (destGameRoot.isEmpty() || newGameRoot.isEmpty()) {
+        return;
+    }
+
+    QStringList newFilesList = collectGameRootRelativeFiles(newGameRoot);
+    QSet<QString> newFiles(newFilesList.begin(), newFilesList.end());
+    QString cleanDestGameRoot = QDir::cleanPath(destGameRoot);
+
+    int removedCount = 0;
+    while (!file.atEnd()) {
+        QString rel = QString::fromUtf8(file.readLine()).trimmed();
+        if (rel.isEmpty() || !isSafePackOverrideRelPath(rel) || newFiles.contains(rel)) {
+            continue;
+        }
+        QString targetPath = FS::PathCombine(destGameRoot, rel);
+        if (QFileInfo::exists(targetPath) && FS::deletePath(targetPath)) {
+            removedCount++;
+            // Prune empty parent folders left behind (e.g. removed config subfolders)
+            QDir parentDir = QFileInfo(targetPath).dir();
+            while (QDir::cleanPath(parentDir.absolutePath()) != cleanDestGameRoot && parentDir.isEmpty()) {
+                QString dirName = parentDir.dirName();
+                if (!parentDir.cdUp() || !parentDir.rmdir(dirName)) {
+                    break;
+                }
+            }
+        }
+    }
+    file.close();
+
+    if (removedCount > 0) {
+        qDebug() << "Cleaned up" << removedCount << "outdated/removed pack override files during pack update.";
+    }
+}
+
+void ensurePackOverridesUpdated(const QString& destination, const QString& staging)
+{
+    QString newGameRoot = findGameRootFolder(staging);
+    if (newGameRoot.isEmpty()) {
+        return;
+    }
+
+    QStringList files = collectGameRootRelativeFiles(newGameRoot);
+    if (files.isEmpty()) {
+        return;
+    }
+
+    QString overridesFile = FS::PathCombine(destination, "pack_overrides.txt");
+    QFile out(overridesFile);
+    if (out.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        for (const auto& rel : files) {
+            out.write(rel.toUtf8());
+            out.write("\n");
+        }
+        out.close();
+    }
+}
 } // namespace
 
 bool InstanceList::commitStagedInstance(const QString& path,
@@ -1283,16 +1411,22 @@ bool InstanceList::commitStagedInstance(const QString& path,
 
         if (should_override) {
             cleanupOutdatedPackMods(destination, path);
+            cleanupOutdatedPackOverrides(destination, path);
             if (!FS::overrideFolder(destination, path)) {
                 qWarning() << "Failed to override" << path << "to" << destination;
                 return false;
             }
             ensureManifestUpdated(destination, path);
+            ensurePackOverridesUpdated(destination, path);
+            if (auto* inst = getInstanceById(instID)) {
+                inst->reloadSettings();
+            }
         } else {
             if (!FS::move(path, destination)) {
                 qWarning() << "Failed to move" << path << "to" << destination;
                 return false;
             }
+            ensurePackOverridesUpdated(destination, destination);
 
             m_instanceGroupIndex[instID] = groupName;
             increaseGroupCount(groupName);
