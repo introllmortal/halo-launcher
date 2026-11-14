@@ -141,6 +141,16 @@
           </item>
          </layout>
         </item>
+        <item row="5" column="2">
+         <widget class="QCheckBox" name="enableAnimationsCheckBox">
+          <property name="toolTip">
+           <string>Animate cards, smooth scrolling, and panel transitions.</string>
+          </property>
+          <property name="text">
+           <string>Enable UI animations</string>
+          </property>
+         </widget>
+        </item>
        </layout>
       </item>
      </layout>
@@ -631,6 +641,9 @@
   <tabstop>iconsFolder</tabstop>
   <tabstop>catPackComboBox</tabstop>
   <tabstop>catPackFolder</tabstop>
+  <tabstop>reloadThemesButton</tabstop>
+  <tabstop>hideCatButtonCheckBox</tabstop>
+  <tabstop>enableAnimationsCheckBox</tabstop>
   <tabstop>consoleFont</tabstop>
   <tabstop>fontSizeBox</tabstop>
   <tabstop>catFitComboBox</tabstop>

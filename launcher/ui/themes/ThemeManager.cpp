@@ -102,6 +102,12 @@ void ThemeManager::initializeThemes()
 
 void ThemeManager::initializeIcons()
 {
+    static const bool haloIconsInitialized = [] {
+        Q_INIT_RESOURCE(halo_icons);
+        return true;
+    }();
+    Q_UNUSED(haloIconsInitialized);
+
     // TODO: icon themes and instance icons do not mesh well together. Rearrange and fix discrepancies!
     // set icon theme search path!
     themeDebugLog() << "<> Initializing Icon Themes";
@@ -282,7 +288,7 @@ void ThemeManager::applyCurrentlySelectedTheme(bool initial)
     auto settings = APPLICATION->settings();
     auto iconTheme = settings->get("IconTheme").toString();
     if (iconTheme.isEmpty()) {
-        iconTheme = "flat_white";
+        iconTheme = QStringLiteral("halo");
     }
     setIconTheme(iconTheme);
     themeDebugLog() << "<> Icon theme set.";

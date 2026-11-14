@@ -525,30 +525,7 @@ void ManagedPackPage::updatePack(const QUrl& url, QString versionID, QString ver
         return;
     }
 
-    QMap<QString, QString> extra_info;
-    // NOTE: Don't use 'm_pack.id' here, since we didn't completely parse all the metadata for the pack, including this field.
-    extra_info.insert("pack_id", m_inst->getManagedPackID());
-    extra_info.insert("pack_version_id", versionID);
-    extra_info.insert("original_instance_id", m_inst->id());
-
-    auto extracted = new InstanceImportTask(url, this, std::move(extra_info));
-
-    if (versionName.isEmpty()) {
-        extracted->setName(m_inst->name());
-    } else {
-        InstanceName inst_name(m_inst->getManagedPackName(), versionName);
-        inst_name.setName(m_inst->name().replace(m_inst->getManagedPackVersionName(), versionName));
-        extracted->setName(inst_name);
-    }
-    extracted->setGroup(APPLICATION->instances()->getInstanceGroup(m_inst->id()));
-    extracted->setIcon(m_inst->iconKey());
-    extracted->setConfirmUpdate(false);
-
-    // Run our task then handle the result
-    auto did_succeed = runUpdateTask(extracted);
-    if (did_succeed) {
-        m_inst->reloadSettings();
-    }
+    const bool did_succeed = ManagedPackUpdater::runImportUpdate(m_inst, url, versionID, versionName, this, false);
     onUpdateTaskCompleted(did_succeed);
 }
 
@@ -608,93 +585,11 @@ void HaloManagedPackPage::parseManagedPack()
     netJob->addNetAction(action);
 
     connect(netJob.get(), &NetJob::succeeded, this, [this, response]() {
-        QJsonParseError parse_error{};
-        QJsonDocument doc = QJsonDocument::fromJson(*response, &parse_error);
-        if (parse_error.error != QJsonParseError::NoError) {
-            qWarning() << "Error parsing Halo pack versions JSON:" << parse_error.errorString();
-            setFailState();
-            return;
-        }
-
-        QJsonArray arr;
-        if (doc.isArray()) {
-            arr = doc.array();
-        } else if (doc.isObject()) {
-            if (doc.object().contains("versions")) {
-                arr = doc.object()["versions"].toArray();
-            } else {
-                arr.append(doc.object());
-            }
-        }
-
-        m_versions.clear();
-        for (const auto& val : arr) {
-            auto obj = val.toObject();
-            PackVersion pv;
-            pv.version = obj.contains("version") ? obj["version"].toString() : obj["tag_name"].toString();
-            pv.name = obj.contains("name") ? obj["name"].toString() : pv.version;
-            pv.changelog = obj.contains("changelog") ? obj["changelog"].toString() : obj["body"].toString();
-
-            if (obj.contains("url")) {
-                pv.downloadUrl = QUrl(obj["url"].toString());
-            } else if (obj.contains("download_url")) {
-                pv.downloadUrl = QUrl(obj["download_url"].toString());
-            } else if (obj.contains("assets")) {
-                auto assets = obj["assets"].toArray();
-                for (const auto& a : assets) {
-                    auto aObj = a.toObject();
-                    auto aName = aObj["name"].toString();
-                    if (aName.endsWith(".mrpack", Qt::CaseInsensitive) || aName.endsWith(".zip", Qt::CaseInsensitive)) {
-                        pv.downloadUrl = QUrl(aObj["browser_download_url"].toString());
-                        break;
-                    }
-                }
-            }
-
-            if (obj.contains("delta_manifest")) {
-                if (obj["delta_manifest"].isObject()) {
-                    pv.deltaManifest = obj["delta_manifest"].toObject();
-                    pv.hasDeltaManifest = true;
-                } else if (obj["delta_manifest"].isString()) {
-                    pv.deltaManifestUrl = QUrl(obj["delta_manifest"].toString());
-                    pv.hasDeltaManifest = pv.deltaManifestUrl.isValid();
-                }
-            } else if (obj.contains("delta_manifest_url")) {
-                pv.deltaManifestUrl = QUrl(obj["delta_manifest_url"].toString());
-                pv.hasDeltaManifest = pv.deltaManifestUrl.isValid();
-            } else if (obj.contains("deltaManifest")) {
-                if (obj["deltaManifest"].isObject()) {
-                    pv.deltaManifest = obj["deltaManifest"].toObject();
-                    pv.hasDeltaManifest = true;
-                } else if (obj["deltaManifest"].isString()) {
-                    pv.deltaManifestUrl = QUrl(obj["deltaManifest"].toString());
-                    pv.hasDeltaManifest = pv.deltaManifestUrl.isValid();
-                }
-            }
-
-            if (!pv.hasDeltaManifest && obj.contains("assets")) {
-                auto assets = obj["assets"].toArray();
-                for (const auto& a : assets) {
-                    auto aObj = a.toObject();
-                    auto aName = aObj["name"].toString();
-                    if (aName.endsWith("delta_manifest.json", Qt::CaseInsensitive)) {
-                        pv.deltaManifestUrl = QUrl(aObj["browser_download_url"].toString());
-                        pv.hasDeltaManifest = pv.deltaManifestUrl.isValid();
-                        break;
-                    }
-                }
-            }
-
-            if (!pv.version.isEmpty() && pv.downloadUrl.isValid()) {
-                m_versions.append(pv);
-            }
-        }
-
+        m_versions = ManagedPackUpdater::parseHaloPackVersions(*response);
         if (m_versions.isEmpty()) {
             setFailState();
             return;
         }
-
         ui->versionsComboBox->blockSignals(true);
         ui->versionsComboBox->clear();
         ui->versionsComboBox->blockSignals(false);
@@ -776,103 +671,20 @@ void HaloManagedPackPage::updateFromFile()
     updatePack(output);
 }
 
-void HaloManagedPackPage::executeDeltaSync(const PackVersion& version)
+void HaloManagedPackPage::executeDeltaSync(const HaloPackVersion& version)
 {
     ui->updateButton->setEnabled(false);
 
-    QJsonObject manifest = version.deltaManifest;
-    if (manifest.isEmpty() && version.deltaManifestUrl.isValid()) {
-        auto netJob = makeShared<NetJob>(tr("Fetch Delta Manifest"), APPLICATION->network());
-        auto [action, response] = Net::ApiDownload::makeByteArray(version.deltaManifestUrl);
-        netJob->addNetAction(action);
-
-        ProgressDialog fetchDlg(this);
-        fetchDlg.setSkipButton(true, tr("Abort"));
-        fetchDlg.execWithTask(netJob.get());
-
-        if (!netJob->wasSuccessful()) {
-            QString reason = netJob->failReason();
-            if (reason.isEmpty()) {
-                reason = tr("Failed to download delta manifest");
-            }
-            auto res = CustomMessageBox::selectable(
-                this, tr("Delta Update Failed"),
-                tr("Delta update could not be completed (%1).\n\nWould you like to perform a full modpack archive update instead?")
-                    .arg(reason),
-                QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
-                ->exec();
-
-            if (res == QMessageBox::Yes) {
-                updatePack(version.downloadUrl, version.version, version.version);
-            } else {
-                ui->updateButton->setEnabled(true);
-            }
-            return;
-        }
-
-        QJsonParseError parse_error{};
-        QJsonDocument doc = QJsonDocument::fromJson(*response, &parse_error);
-        if (parse_error.error != QJsonParseError::NoError || !doc.isObject()) {
-            auto res = CustomMessageBox::selectable(
-                this, tr("Delta Update Failed"),
-                tr("Delta update could not be completed (%1).\n\nWould you like to perform a full modpack archive update instead?")
-                    .arg(tr("Invalid delta manifest format")),
-                QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
-                ->exec();
-
-            if (res == QMessageBox::Yes) {
-                updatePack(version.downloadUrl, version.version, version.version);
-            } else {
-                ui->updateButton->setEnabled(true);
-            }
-            return;
-        }
-
-        manifest = doc.object();
-    }
-
-    auto deltaTask = new DeltaSyncTask(m_inst, manifest, version.version, this);
-
-    ProgressDialog progressDialog(this);
-    progressDialog.setSkipButton(true, tr("Abort"));
-    progressDialog.execWithTask(deltaTask);
-
-    if (!deltaTask->wasSuccessful()) {
-        QString reason = deltaTask->failReason();
-        if (reason.isEmpty()) {
-            reason = deltaTask->wasAborted() ? tr("Task aborted by user") : tr("Unknown error");
-        }
-        delete deltaTask;
-
-        auto res = CustomMessageBox::selectable(
-            this, tr("Delta Update Failed"),
-            tr("Delta update could not be completed (%1).\n\nWould you like to perform a full modpack archive update instead?")
-                .arg(reason),
-            QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
-            ->exec();
-
-        if (res == QMessageBox::Yes) {
-            updatePack(version.downloadUrl, version.version, version.version);
-        } else {
-            ui->updateButton->setEnabled(true);
-        }
+    const bool didSucceed = ManagedPackUpdater::executeHaloDeltaSync(m_inst, version, this);
+    ui->updateButton->setEnabled(true);
+    if (!didSucceed) {
         return;
     }
 
-    delete deltaTask;
-    m_inst->reloadSettings();
-
-    CustomMessageBox::selectable(
-        this, tr("Update Successful"),
-        tr("Modpack successfully updated to version %1 via Delta Sync!").arg(version.version),
-        QMessageBox::Information)
-        ->exec();
-
-    // Update UI labels and re-enable update button
+    // Update UI labels and combo box markers
     ui->packVersion->setText(m_inst->getManagedPackVersionName());
     ui->packOrigin->setText(tr("Website: <a href=%1>%2</a>    |    Pack ID: %3    |    Version ID: %4")
                                 .arg(url(), displayName(), m_inst->getManagedPackID(), m_inst->getManagedPackVersionID()));
-    ui->updateButton->setEnabled(true);
 
     int currentIdx = ui->versionsComboBox->currentIndex();
     ui->versionsComboBox->blockSignals(true);

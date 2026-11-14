@@ -59,6 +59,7 @@ AppearanceWidget::AppearanceWidget(bool themesOnly, QWidget* parent)
         m_ui->catPackLabel->hide();
         m_ui->catPackComboBox->hide();
         m_ui->catPackFolder->hide();
+        m_ui->enableAnimationsCheckBox->hide();
         m_ui->settingsBox->hide();
         m_ui->consolePreview->hide();
         m_ui->catPreview->hide();
@@ -95,6 +96,9 @@ AppearanceWidget::~AppearanceWidget()
 
 void AppearanceWidget::applySettings()
 {
+    if (m_themesOnly) {
+        return;
+    }
     SettingsObject* settings = APPLICATION->settings();
     QString consoleFontFamily = m_ui->consoleFont->currentFont().family();
     settings->set("ConsoleFont", consoleFontFamily);
@@ -103,6 +107,7 @@ void AppearanceWidget::applySettings()
     auto catFit = m_ui->catFitComboBox->currentIndex();
     settings->set("CatFit", catFit == 0 ? "fit" : catFit == 1 ? "fill" : "strech");
     settings->set("CatButtonVisible", !m_ui->hideCatButtonCheckBox->isChecked());
+    settings->set("EnableUiAnimations", m_ui->enableAnimationsCheckBox->isChecked());
 }
 
 void AppearanceWidget::loadSettings()
@@ -124,6 +129,7 @@ void AppearanceWidget::loadSettings()
     auto catFit = settings->get("CatFit").toString();
     m_ui->catFitComboBox->setCurrentIndex(catFit == "fit" ? 0 : catFit == "fill" ? 1 : 2);
     m_ui->hideCatButtonCheckBox->setChecked(!settings->get("CatButtonVisible").toBool());
+    m_ui->enableAnimationsCheckBox->setChecked(settings->get("EnableUiAnimations").toBool());
 }
 
 void AppearanceWidget::retranslateUi()

@@ -56,14 +56,19 @@ class InstanceInspector : public QWidget {
 
    signals:
     void shareLogRequested();
+    void updatePackRequested();
 
    private:
+    void buildEmptyPage();
+    void buildDetailsPage();
     QToolButton* makeGridButton(const QString& iconName, QAction* action, QWidget* parent);
+    static QString trLabel(const QString& translated, const char* englishLiteral, const QString& ruFallback);
     void updatePlayButtonState();
-    void updateMetadata(BaseInstance* instance);
+    void updateMetadata(BaseInstance* instance, bool animateVisibility);
 
     Actions m_actions;
     QPointer<BaseInstance> m_instance;
+    bool m_initialized = false;
 
     QStackedWidget* m_stack = nullptr;
 
@@ -87,6 +92,7 @@ class InstanceInspector : public QWidget {
     QLabel* m_playtimeLabel = nullptr;
 
     QToolButton* m_playButton = nullptr;
+    QPushButton* m_updatePackButton = nullptr;
     QPushButton* m_editButton = nullptr;
     QToolButton* m_folderButton = nullptr;
     QToolButton* m_groupButton = nullptr;

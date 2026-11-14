@@ -1,0 +1,11 @@
+[Icon Theme]
+Name=Halo Linear
+Comment=Custom high-contrast duotone SVG icons for Halo Launcher
+Inherits=multimc
+Directories=scalable
+
+[scalable]
+Size=48
+Type=Scalable
+MinSize=16
+MaxSize=256

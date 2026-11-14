@@ -109,9 +109,12 @@ class PageContainer : public QWidget, public BasePageContainer {
 
    private:
     BasePageContainer* m_container = nullptr;
-    BasePage* m_currentPage = 0;
+    BasePage* m_currentPage = nullptr;
+    int m_currentRow = -1;
+    bool m_hasShownPage = false;
     QSortFilterProxyModel* m_proxyModel;
     PageModel* m_model;
+    QWidget* m_pageHost = nullptr;
     QStackedLayout* m_pageStack;
     QListView* m_pageList;
     QLabel* m_header;

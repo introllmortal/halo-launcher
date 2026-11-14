@@ -936,8 +936,12 @@ SET(LAUNCHER_SOURCES
     ui/pages/instance/ExternalResourcesPage.h
     ui/pages/instance/VersionPage.cpp
     ui/pages/instance/VersionPage.h
+    ui/pages/instance/ManagedPackManifest.cpp
+    ui/pages/instance/ManagedPackManifest.h
     ui/pages/instance/ManagedPackPage.cpp
     ui/pages/instance/ManagedPackPage.h
+    ui/pages/instance/ManagedPackUpdater.cpp
+    ui/pages/instance/ManagedPackUpdater.h
     ui/pages/instance/DataPackPage.h
     ui/pages/instance/DataPackPage.cpp
     ui/pages/instance/TexturePackPage.h
@@ -1189,6 +1193,9 @@ SET(LAUNCHER_SOURCES
     ui/widgets/LauncherSidebar.cpp
     ui/widgets/InstanceInspector.h
     ui/widgets/InstanceInspector.cpp
+    ui/widgets/InstanceInspectorUi.cpp
+    ui/widgets/UiAnimations.h
+    ui/widgets/UiAnimations.cpp
     ui/widgets/AppearanceWidget.h
     ui/widgets/AppearanceWidget.cpp
     ui/widgets/MinecraftSettingsWidget.h
@@ -1202,6 +1209,8 @@ SET(LAUNCHER_SOURCES
     ui/instanceview/AccessibleInstanceView.cpp
     ui/instanceview/AccessibleInstanceView.h
     ui/instanceview/AccessibleInstanceView_p.h
+    ui/instanceview/InstanceCardAnimator.cpp
+    ui/instanceview/InstanceCardAnimator.h
     ui/instanceview/InstanceView.cpp
     ui/instanceview/InstanceView.h
     ui/instanceview/InstanceDelegate.cpp
@@ -1257,6 +1266,8 @@ qt_add_resources(LAUNCHER_RESOURCES
     resources/flat/flat.qrc
     resources/flat_white/flat_white.qrc
     resources/documents/documents.qrc
+    resources/halo/halo.qrc
+    resources/halo_icons/halo_icons.qrc
     "${CMAKE_CURRENT_BINARY_DIR}/../${Launcher_Branding_LogoQRC}"
 )
 

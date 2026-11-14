@@ -1,0 +1,12 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/halo">
+        <file>halo.qss</file>
+        <file>check.svg</file>
+        <file>check-disabled.svg</file>
+        <file>minus.svg</file>
+        <file>radio-dot.svg</file>
+        <file>chevron-down.svg</file>
+        <file>chevron-up.svg</file>
+    </qresource>
+</RCC>

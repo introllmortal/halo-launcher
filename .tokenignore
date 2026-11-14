@@ -18,5 +18,6 @@ launcher/translations/TranslationsModel.cpp
 launcher/ui/MainWindow.ui
 launcher/ui/instanceview/InstanceView.cpp
 launcher/ui/pages/global/LauncherPage.ui
+launcher/ui/widgets/AppearanceWidget.ui
 launcher/updater/prismupdater/PrismUpdater.cpp
 tests/FileSystem_test.cpp

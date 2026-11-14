@@ -13,9 +13,9 @@
 
 #include "net/NetJob.h"
 
+#include "ManagedPackUpdater.h"
 #include "ui/pages/BasePage.h"
 
-#include <QJsonObject>
 #include <QWidget>
 
 namespace Ui {
@@ -182,18 +182,8 @@ class HaloManagedPackPage final : public ManagedPackPage {
     void updateFromFile() override;
 
    private:
-    struct PackVersion {
-        QString version;
-        QString name;
-        QString changelog;
-        QUrl downloadUrl;
-        QJsonObject deltaManifest;
-        QUrl deltaManifestUrl;
-        bool hasDeltaManifest = false;
-    };
-
     Task::Ptr m_fetch_job = nullptr;
-    QVector<PackVersion> m_versions;
+    QVector<HaloPackVersion> m_versions;
 
-    void executeDeltaSync(const PackVersion& version);
+    void executeDeltaSync(const HaloPackVersion& version);
 };

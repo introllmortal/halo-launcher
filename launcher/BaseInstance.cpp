@@ -364,7 +364,11 @@ bool BaseInstance::canLaunch() const
 
 bool BaseInstance::reloadSettings()
 {
-    return m_settings->reload();
+    const bool reloaded = m_settings->reload();
+    if (reloaded) {
+        emit propertiesChanged(this);
+    }
+    return reloaded;
 }
 
 qint64 BaseInstance::lastLaunch() const

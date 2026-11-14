@@ -39,6 +39,7 @@
 #include <QApplication>
 #include <QCache>
 #include <QDrag>
+#include <QEasingCurve>
 #include <QFont>
 #include <QListView>
 #include <QMimeData>
@@ -46,11 +47,15 @@
 #include <QPainter>
 #include <QPersistentModelIndex>
 #include <QScrollBar>
+#include <QWheelEvent>
 #include <QtMath>
+#include <cmath>
 
+#include "BaseInstance.h"
 #include "VisualGroup.h"
 #include "ui/themes/CatPainter.h"
 #include "ui/themes/ThemeManager.h"
+#include "ui/widgets/UiAnimations.h"
 
 #include <Application.h>
 #include <InstanceList.h>
@@ -75,9 +80,18 @@ InstanceView::InstanceView(QWidget* parent) : QAbstractItemView(parent)
     viewport()->setMouseTracking(true);
     setAcceptDrops(true);
     setAutoScroll(true);
-    setPaintCat(APPLICATION->settings()->get("TheCat").toBool());
+    setPaintCat(APPLICATION_DYN ? APPLICATION_DYN->settings()->get("TheCat").toBool() : false);
     connect(verticalScrollBar(), &QScrollBar::valueChanged, viewport(), QOverload<>::of(&QWidget::update));
     connect(horizontalScrollBar(), &QScrollBar::valueChanged, viewport(), QOverload<>::of(&QWidget::update));
+
+    m_animTimer.setInterval(16);
+    connect(&m_animTimer, &QTimer::timeout, this, &InstanceView::onAnimationTick);
+
+    m_scrollAnim = new QVariantAnimation(this);
+    m_scrollAnim->setDuration(140);
+    m_scrollAnim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(m_scrollAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& value) { verticalScrollBar()->setValue(value.toInt()); });
+    connect(verticalScrollBar(), &QScrollBar::sliderPressed, this, &InstanceView::stopSmoothScroll);
 }
 
 InstanceView::~InstanceView()
@@ -91,6 +105,13 @@ InstanceView::~InstanceView()
 
 void InstanceView::setModel(QAbstractItemModel* model)
 {
+    m_cardAnimator.clear();
+    m_hoveredIndex = QModelIndex();
+    m_pressedIndex = QModelIndex();
+    m_hasVisibleStatusPulse = false;
+    m_animTimer.stop();
+    stopSmoothScroll();
+
     if (auto* prevModel = this->model()) {
         disconnect(prevModel, &QAbstractItemModel::modelReset, this, &InstanceView::modelReset);
         disconnect(prevModel, &QAbstractItemModel::rowsRemoved, this, &InstanceView::rowsRemoved);
@@ -123,6 +144,10 @@ void InstanceView::rowsAboutToBeRemoved([[maybe_unused]] const QModelIndex& pare
 
 void InstanceView::modelReset()
 {
+    m_cardAnimator.clear();
+    m_hasVisibleStatusPulse = false;
+    stopSmoothScroll();
+    ensureAnimationTimerState();
     scheduleDelayedItemsLayout();
 }
 
@@ -143,6 +168,28 @@ void InstanceView::currentChanged(const QModelIndex& current, const QModelIndex&
         QAccessible::updateAccessibility(&event);
     }
 #endif /* !QT_NO_ACCESSIBILITY */
+}
+
+void InstanceView::selectionChanged(const QItemSelection& selected, const QItemSelection& deselected)
+{
+    QAbstractItemView::selectionChanged(selected, deselected);
+    if (!UiAnimations::animationsEnabled()) {
+        ensureAnimationTimerState();
+        return;
+    }
+    for (const QModelIndex& index : selected.indexes()) {
+        if (index.column() == 0) {
+            m_cardAnimator.setSelected(index, true);
+            viewport()->update(visualRect(index));
+        }
+    }
+    for (const QModelIndex& index : deselected.indexes()) {
+        if (index.column() == 0) {
+            m_cardAnimator.setSelected(index, false);
+            viewport()->update(visualRect(index));
+        }
+    }
+    ensureAnimationTimerState();
 }
 
 class LocaleString : public QString {
@@ -311,6 +358,11 @@ void InstanceView::mousePressEvent(QMouseEvent* event)
     }
 
     if (index.isValid() && (index.flags() & Qt::ItemIsEnabled)) {
+        if (event->button() == Qt::LeftButton && UiAnimations::animationsEnabled()) {
+            m_cardAnimator.setPressed(index, true, m_pressedAlreadySelected);
+            viewport()->update(visualRect(index));
+            ensureAnimationTimerState();
+        }
         if (index != currentIndex()) {
             // FIXME: better!
             m_currentCursorColumn = -1;
@@ -346,11 +398,20 @@ void InstanceView::mouseMoveEvent(QMouseEvent* event)
         const QModelIndex prevHovered = m_hoveredIndex;
         m_hoveredIndex = hovered;
         if (prevHovered.isValid()) {
+            if (UiAnimations::animationsEnabled()) {
+                const bool prevSelected = selectionModel() && selectionModel()->isSelected(prevHovered);
+                m_cardAnimator.setHovered(prevHovered, false, prevSelected);
+            }
             viewport()->update(visualRect(prevHovered));
         }
         if (m_hoveredIndex.isValid()) {
+            if (UiAnimations::animationsEnabled()) {
+                const bool hoveredSelected = selectionModel() && selectionModel()->isSelected(m_hoveredIndex);
+                m_cardAnimator.setHovered(m_hoveredIndex, true, hoveredSelected);
+            }
             viewport()->update(visualRect(m_hoveredIndex));
         }
+        ensureAnimationTimerState();
     }
 
     if (state() == ExpandingState || state() == CollapsingState) {
@@ -360,6 +421,12 @@ void InstanceView::mouseMoveEvent(QMouseEvent* event)
     if (state() == DraggingState) {
         topLeft = m_pressedPosition - offset();
         if ((topLeft - event->pos()).manhattanLength() > QApplication::startDragDistance()) {
+            if (m_pressedIndex.isValid() && UiAnimations::animationsEnabled()) {
+                const bool wasSelected = selectionModel() && selectionModel()->isSelected(m_pressedIndex);
+                m_cardAnimator.setPressed(m_pressedIndex, false, wasSelected);
+                viewport()->update(visualRect(m_pressedIndex));
+                ensureAnimationTimerState();
+            }
             m_pressedIndex = QModelIndex();
             startDrag(model()->supportedDragActions());
             setState(NoState);
@@ -431,6 +498,15 @@ void InstanceView::mouseReleaseEvent(QMouseEvent* event)
 
     setState(NoState);
 
+    if (event->button() == Qt::LeftButton && m_pressedIndex.isValid()) {
+        if (UiAnimations::animationsEnabled()) {
+            const bool wasSelected = selectionModel() && selectionModel()->isSelected(m_pressedIndex);
+            m_cardAnimator.setPressed(m_pressedIndex, false, wasSelected);
+        }
+        viewport()->update(visualRect(m_pressedIndex));
+        ensureAnimationTimerState();
+    }
+
     if (index == m_pressedIndex && index.isValid()) {
         if (event->button() == Qt::LeftButton) {
             emit clicked(index);
@@ -474,6 +550,11 @@ void InstanceView::leaveEvent(QEvent* event)
     if (m_hoveredIndex.isValid()) {
         const QModelIndex prevHovered = m_hoveredIndex;
         m_hoveredIndex = QModelIndex();
+        if (UiAnimations::animationsEnabled()) {
+            const bool prevSelected = selectionModel() && selectionModel()->isSelected(prevHovered);
+            m_cardAnimator.setHovered(prevHovered, false, prevSelected);
+        }
+        ensureAnimationTimerState();
         viewport()->update(visualRect(prevHovered));
     }
     QAbstractItemView::leaveEvent(event);
@@ -492,7 +573,7 @@ void InstanceView::setPaintCat(bool visible)
     }
 }
 
-void InstanceView::paintEvent([[maybe_unused]] QPaintEvent* event)
+void InstanceView::paintEvent(QPaintEvent* event)
 {
     executeDelayedItemsLayout();
 
@@ -502,13 +583,22 @@ void InstanceView::paintEvent([[maybe_unused]] QPaintEvent* event)
         m_cat->paint(&painter, this->viewport()->rect());
     }
 
+    if (!model()) {
+        m_hasVisibleStatusPulse = false;
+        ensureAnimationTimerState();
+        return;
+    }
+
     QStyleOptionViewItem option;
     initViewItemOption(&option);
     option.widget = this;
 
     if (model()->rowCount() == 0) {
+        m_hasVisibleStatusPulse = false;
+        ensureAnimationTimerState();
+
         painter.save();
-        auto* translations = APPLICATION ? APPLICATION->translations() : nullptr;
+        auto* translations = APPLICATION_DYN ? APPLICATION_DYN->translations() : nullptr;
         QString emptyTitle =
             TranslationsModel::trFallback(translations, tr("No instances found"), "No instances found", QStringLiteral("Сборки не найдены"));
         QString emptyHint = TranslationsModel::trFallback(translations,
@@ -569,6 +659,9 @@ void InstanceView::paintEvent([[maybe_unused]] QPaintEvent* event)
         option.rect = backup;
     }
 
+    bool anyVisibleStatusPulse = false;
+    const QRect viewRect = viewport()->rect();
+    const QRegion paintRegion = event->region();
     const QStyle::State baseState = option.state;
     for (int i = 0; i < model()->rowCount(); ++i) {
         const QModelIndex index = model()->index(i, 0);
@@ -597,7 +690,21 @@ void InstanceView::paintEvent([[maybe_unused]] QPaintEvent* event)
         if (!(flags & Qt::ItemIsEnabled)) {
             option.state &= ~QStyle::State_Enabled;
         }
-        itemDelegate()->paint(&painter, option, index);
+        if (option.rect.intersects(viewRect)) {
+            if (auto* instance = static_cast<BaseInstance*>(index.data(InstanceList::InstancePointerRole).value<void*>())) {
+                if (instance->isRunning() || instance->hasUpdateAvailable()) {
+                    anyVisibleStatusPulse = true;
+                }
+            }
+        }
+        if (paintRegion.intersects(option.rect)) {
+            itemDelegate()->paint(&painter, option, index);
+        }
+    }
+
+    if (anyVisibleStatusPulse != m_hasVisibleStatusPulse) {
+        m_hasVisibleStatusPulse = anyVisibleStatusPulse;
+        ensureAnimationTimerState();
     }
 
     /*
@@ -1042,6 +1149,8 @@ void InstanceView::scrollTo(const QModelIndex& index, ScrollHint hint)
     if (!index.isValid())
         return;
 
+    stopSmoothScroll();
+
     const QRect rect = visualRect(index);
     if (hint == EnsureVisible && viewport()->rect().contains(rect)) {
         viewport()->update(rect);
@@ -1066,4 +1175,168 @@ int InstanceView::verticalScrollToValue([[maybe_unused]] const QModelIndex& inde
     else if (hint == QListView::PositionAtCenter)
         verticalValue += adjusted.top() - ((area.height() - adjusted.height()) / 2);
     return verticalValue;
+}
+
+qreal InstanceView::hoverProgress(const QModelIndex& index, bool fallbackHovered) const
+{
+    if (!UiAnimations::animationsEnabled()) {
+        return fallbackHovered ? 1.0 : 0.0;
+    }
+    return m_cardAnimator.hoverProgress(index, fallbackHovered);
+}
+
+qreal InstanceView::selectProgress(const QModelIndex& index, bool fallbackSelected) const
+{
+    if (!UiAnimations::animationsEnabled()) {
+        return fallbackSelected ? 1.0 : 0.0;
+    }
+    return m_cardAnimator.selectProgress(index, fallbackSelected);
+}
+
+qreal InstanceView::pressProgress(const QModelIndex& index) const
+{
+    if (!UiAnimations::animationsEnabled()) {
+        return 0.0;
+    }
+    return m_cardAnimator.pressProgress(index);
+}
+
+qreal InstanceView::statusPulseValue() const
+{
+    if (!UiAnimations::animationsEnabled() || !m_hasVisibleStatusPulse) {
+        return 0.0;
+    }
+    return 0.5 - 0.5 * std::cos(m_statusPulsePhase);
+}
+
+void InstanceView::wheelEvent(QWheelEvent* event)
+{
+    if (!UiAnimations::animationsEnabled() || !verticalScrollBar()->isVisible() || event->modifiers() != Qt::NoModifier ||
+        event->source() != Qt::MouseEventNotSynthesized || !event->pixelDelta().isNull() || event->angleDelta().y() == 0) {
+        stopSmoothScroll();
+        QAbstractItemView::wheelEvent(event);
+        return;
+    }
+
+    const int stepPx = qMax(48, qRound(verticalScrollBar()->singleStep() * 0.65));
+    const int delta = qRound((-static_cast<qreal>(event->angleDelta().y()) / 120.0) * stepPx);
+    if (delta == 0) {
+        stopSmoothScroll();
+        QAbstractItemView::wheelEvent(event);
+        return;
+    }
+
+    const int origin = (m_scrollAnim && m_scrollAnim->state() == QAbstractAnimation::Running) ? m_scrollTarget : verticalScrollBar()->value();
+    m_scrollTarget = qBound(verticalScrollBar()->minimum(), origin + delta, verticalScrollBar()->maximum());
+
+    if (m_scrollTarget == verticalScrollBar()->value()) {
+        stopSmoothScroll();
+        event->accept();
+        return;
+    }
+
+    m_scrollAnim->stop();
+    m_scrollAnim->setStartValue(verticalScrollBar()->value());
+    m_scrollAnim->setEndValue(m_scrollTarget);
+    m_scrollAnim->start();
+    event->accept();
+}
+
+void InstanceView::hideEvent(QHideEvent* event)
+{
+    m_animTimer.stop();
+    stopSmoothScroll();
+    m_cardAnimator.clear();
+    m_hoveredIndex = QModelIndex();
+    m_pressedIndex = QModelIndex();
+    m_statusPulsePhase = 0.0;
+    QAbstractItemView::hideEvent(event);
+}
+
+void InstanceView::showEvent(QShowEvent* event)
+{
+    QAbstractItemView::showEvent(event);
+    ensureAnimationTimerState();
+}
+
+void InstanceView::onAnimationTick()
+{
+    if (!UiAnimations::animationsEnabled() || !isVisible()) {
+        m_animTimer.stop();
+        m_cardAnimator.clear();
+        m_statusPulsePhase = 0.0;
+        viewport()->update();
+        return;
+    }
+
+    const qint64 dtMs = qBound(qint64{ 1 }, m_animClock.restart(), qint64{ 64 });
+
+    QList<QModelIndex> dirtyIndices;
+    m_cardAnimator.step(dtMs, dirtyIndices);
+    for (const QModelIndex& idx : dirtyIndices) {
+        const QRect rect = visualRect(idx);
+        if (rect.isValid()) {
+            viewport()->update(rect);
+        }
+    }
+
+    if (m_hasVisibleStatusPulse && model()) {
+        constexpr qreal kTwoPi = 2.0 * 3.14159265358979323846;
+        m_statusPulsePhase += (kTwoPi * static_cast<qreal>(dtMs)) / 2400.0;
+        if (m_statusPulsePhase >= kTwoPi) {
+            m_statusPulsePhase -= kTwoPi;
+        }
+        const QRect viewRect = viewport()->rect();
+        for (int i = 0; i < model()->rowCount(); ++i) {
+            const QModelIndex idx = model()->index(i, 0);
+            if (isIndexHidden(idx)) {
+                continue;
+            }
+            const QRect rect = visualRect(idx);
+            if (!rect.intersects(viewRect)) {
+                continue;
+            }
+            if (auto* instance = static_cast<BaseInstance*>(idx.data(InstanceList::InstancePointerRole).value<void*>())) {
+                if (instance->isRunning() || instance->hasUpdateAvailable()) {
+                    viewport()->update(rect);
+                }
+            }
+        }
+    } else {
+        m_statusPulsePhase = 0.0;
+    }
+
+    ensureAnimationTimerState();
+}
+
+void InstanceView::ensureAnimationTimerState()
+{
+    if (!UiAnimations::animationsEnabled()) {
+        m_cardAnimator.clear();
+        m_statusPulsePhase = 0.0;
+        if (m_animTimer.isActive()) {
+            m_animTimer.stop();
+        }
+        return;
+    }
+
+    const bool needTimer = isVisible() && (m_cardAnimator.hasActiveTransitions() || m_hasVisibleStatusPulse);
+    if (needTimer) {
+        if (!m_animTimer.isActive()) {
+            m_animClock.restart();
+            m_animTimer.start();
+        }
+    } else if (m_animTimer.isActive()) {
+        m_animTimer.stop();
+        if (!m_hasVisibleStatusPulse) {
+            m_statusPulsePhase = 0.0;
+        }
+    }
+}
+
+void InstanceView::stopSmoothScroll()
+{
+    if (m_scrollAnim && m_scrollAnim->state() == QAbstractAnimation::Running) {
+        m_scrollAnim->stop();
+    }
 }

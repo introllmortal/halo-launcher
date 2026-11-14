@@ -36,10 +36,14 @@
 #pragma once
 
 #include <QCache>
+#include <QElapsedTimer>
 #include <QLineEdit>
 #include <QListView>
 #include <QScrollBar>
+#include <QTimer>
+#include <QVariantAnimation>
 #include <functional>
+#include "InstanceCardAnimator.h"
 #include "VisualGroup.h"
 #include "ui/themes/CatPainter.h"
 
@@ -80,6 +84,13 @@ class InstanceView : public QAbstractItemView {
     int spacing() const { return m_spacing; };
     void setPaintCat(bool visible);
 
+    qreal hoverProgress(const QModelIndex& index, bool fallbackHovered) const;
+    qreal selectProgress(const QModelIndex& index, bool fallbackSelected) const;
+    qreal pressProgress(const QModelIndex& index) const;
+    qreal statusPulseValue() const;
+    bool hasRunningAnimationTimer() const { return m_animTimer.isActive(); }
+    bool hasRunningSmoothScroll() const { return m_scrollAnim && m_scrollAnim->state() == QAbstractAnimation::Running; }
+
    public slots:
     virtual void updateGeometries() override;
 
@@ -90,6 +101,7 @@ class InstanceView : public QAbstractItemView {
     void modelReset();
     void rowsRemoved();
     void currentChanged(const QModelIndex& current, const QModelIndex& previous) override;
+    void selectionChanged(const QItemSelection& selected, const QItemSelection& deselected) override;
 
    signals:
     void droppedURLs(QList<QUrl> urls);
@@ -102,8 +114,14 @@ class InstanceView : public QAbstractItemView {
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
     void leaveEvent(QEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
+    void showEvent(QShowEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+
+   private slots:
+    void onAnimationTick();
 
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dragMoveEvent(QDragMoveEvent* event) override;
@@ -140,6 +158,17 @@ class InstanceView : public QAbstractItemView {
     VisualGroup* m_pressedCategory = nullptr;
     QItemSelectionModel::SelectionFlag m_ctrlDragSelectionFlag = QItemSelectionModel::NoUpdate;
     QPoint m_lastDragPosition;
+
+    InstanceCardAnimator m_cardAnimator;
+    QTimer m_animTimer;
+    QElapsedTimer m_animClock;
+    QVariantAnimation* m_scrollAnim = nullptr;
+    int m_scrollTarget = 0;
+    qreal m_statusPulsePhase = 0.0;
+    bool m_hasVisibleStatusPulse = false;
+
+    void ensureAnimationTimerState();
+    void stopSmoothScroll();
 
     VisualGroup* category(const QModelIndex& index) const;
     VisualGroup* category(const QString& cat) const;

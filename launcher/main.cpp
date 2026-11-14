@@ -56,6 +56,8 @@ int main(int argc, char* argv[])
             Q_INIT_RESOURCE(multimc);
             Q_INIT_RESOURCE(backgrounds);
             Q_INIT_RESOURCE(documents);
+            Q_INIT_RESOURCE(halo);
+            Q_INIT_RESOURCE(halo_icons);
             Q_INIT_RESOURCE(halolauncher);
 
             Q_INIT_RESOURCE(pe_dark);

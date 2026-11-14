@@ -647,9 +647,11 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
             new INISettingsObject({ BuildConfig.LAUNCHER_CONFIGFILE, "prismlauncher.cfg", "polymc.cfg", "multimc.cfg" }, this));
 
         // Theming
-        m_settings->registerSetting("IconTheme", QString("flat_white"));
+        m_settings->registerSetting("IconTheme", QStringLiteral("halo"));
         m_settings->registerSetting("ApplicationTheme", QString("halo"));
         m_settings->registerSetting("HaloModernUiMigrated", false);
+        m_settings->registerSetting("HaloLinearIconsMigrated", false);
+        m_settings->registerSetting("EnableUiAnimations", true);
         m_settings->registerSetting("BackgroundCat", QString("kitteh"));
         m_settings->registerSetting("CatButtonVisible", true);
 
@@ -1224,6 +1226,14 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
         m_settings->set("HaloModernUiMigrated", true);
     }
 
+    if (!m_settings->get("HaloLinearIconsMigrated").toBool()) {
+        const QString currentIcons = m_settings->get("IconTheme").toString();
+        if (currentIcons.isEmpty() || currentIcons == QLatin1String("flat_white")) {
+            m_settings->set("IconTheme", QStringLiteral("halo"));
+        }
+        m_settings->set("HaloLinearIconsMigrated", true);
+    }
+
     if (createSetupWizard()) {
         return;
     }
@@ -1264,7 +1274,7 @@ bool Application::createSetupWizard()
     if (wizardRequired) {
         // set default theme after going into theme wizard
         if (!validIcons)
-            settings()->set("IconTheme", QString("flat_white"));
+            settings()->set("IconTheme", QStringLiteral("halo"));
         if (!validWidgets) {
             settings()->set("ApplicationTheme", QStringLiteral("halo"));
         }

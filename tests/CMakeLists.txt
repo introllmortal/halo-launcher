@@ -72,3 +72,9 @@ ecm_add_test(SkinRasterizer_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSIO
 
 ecm_add_test(DeltaSync_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
     TEST_NAME DeltaSync)
+
+ecm_add_test(UiAnimations_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
+    TEST_NAME UiAnimations)
+
+ecm_add_test(InstanceCardAnimator_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
+    TEST_NAME InstanceCardAnimator)

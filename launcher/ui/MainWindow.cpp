@@ -114,6 +114,7 @@
 #include "ui/instanceview/InstanceDelegate.h"
 #include "ui/instanceview/InstanceProxyModel.h"
 #include "ui/instanceview/InstanceView.h"
+#include "ui/pages/instance/ManagedPackUpdater.h"
 #include "ui/themes/ITheme.h"
 #include "ui/themes/ThemeManager.h"
 #include "ui/widgets/InstanceInspector.h"
@@ -395,6 +396,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
 
         m_inspector = new InstanceInspector(inspActions, ui->centralWidget);
         connect(m_inspector, &InstanceInspector::shareLogRequested, this, &MainWindow::shareLatestLogMclogs);
+        connect(m_inspector, &InstanceInspector::updatePackRequested, this, &MainWindow::updateSelectedModpack);
     }
 
     ui->horizontalLayout->addWidget(m_sidebar);
@@ -674,6 +676,18 @@ void MainWindow::showInstanceContextMenu(const QPoint& pos)
         actionShareLog->setIcon(QIcon::fromTheme("log"));
         connect(actionShareLog, &QAction::triggered, this, &MainWindow::shareLatestLogMclogs);
         actions.append(actionShareLog);
+
+        if (ManagedPackUpdater::supportsOneStepUpdate(m_selectedInstance)) {
+            QAction* actionUpdatePack = new QAction(
+                TranslationsModel::trFallback(APPLICATION->translations(),
+                                              tr("Update Modpack"),
+                                              "Update Modpack",
+                                              QStringLiteral("Обновить модпак")),
+                this);
+            actionUpdatePack->setIcon(QIcon::fromTheme(QStringLiteral("checkupdate")));
+            connect(actionUpdatePack, &QAction::triggered, this, &MainWindow::updateSelectedModpack);
+            actions.append(actionUpdatePack);
+        }
     } else {
         auto group = view->groupNameAt(pos);
 
@@ -761,6 +775,24 @@ void MainWindow::shareLatestLogMclogs()
     }
 
     GuiUtil::uploadPaste(m_selectedInstance->name() + " (latest.log)", logContent, this);
+}
+
+void MainWindow::updateSelectedModpack()
+{
+    if (!ManagedPackUpdater::supportsOneStepUpdate(m_selectedInstance)) {
+        return;
+    }
+
+    BaseInstance* targetInst = m_selectedInstance;
+    ManagedPackUpdater::runOneStepUpdate(targetInst, this);
+
+    if (m_selectedInstance == targetInst && targetInst) {
+        if (m_inspector) {
+            m_inspector->setInstance(targetInst, APPLICATION->icons()->getIcon(targetInst->iconKey()));
+        }
+        updateLaunchButton();
+        updateStatusCenter();
+    }
 }
 
 void MainWindow::updateMainToolBar()
@@ -1964,7 +1996,7 @@ void MainWindow::updateStatusCenter()
     int timePlayed = APPLICATION->instances()->getTotalPlayTime();
     if (timePlayed > 0) {
         m_statusCenter->setText(
-            tr("Total playtime: %1")
+            TranslationsModel::trFallback(APPLICATION->translations(), tr("Total playtime: %1"), "Total playtime: %1", QStringLiteral("Общее время игры: %1"))
                 .arg(Time::prettifyDuration(timePlayed, APPLICATION->settings()->get("ShowGameTimeWithoutDays").toBool())));
     }
 }

@@ -184,6 +184,7 @@ class MainWindow : public QMainWindow {
 
     void showInstanceContextMenu(const QPoint&);
     void shareLatestLogMclogs();
+    void updateSelectedModpack();
 
     void updateMainToolBar();
 

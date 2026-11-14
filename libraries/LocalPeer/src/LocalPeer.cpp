@@ -162,7 +162,11 @@ bool LocalPeer::sendMessage(const QByteArray& message, int timeout)
         // Try twice, in case the other instance is just starting up
         socket.connectToServer(socketName);
         connOk = socket.waitForConnected(timeout / 2);
-        if (!connOk && i < (tries - 1)) {
+        if (connOk) {
+            break;
+        }
+        socket.abort();
+        if (i < (tries - 1)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
         }
     }
@@ -197,22 +201,41 @@ void LocalPeer::receiveConnection()
         return;
     }
 
+    constexpr int kIpcTimeoutMs = 2000;
+    constexpr quint32 kMaxMessageSize = 16 * 1024 * 1024;
+
     while (socket->bytesAvailable() < static_cast<int>(sizeof(quint32))) {
-        socket->waitForReadyRead();
+        if (!socket->isValid() || !socket->waitForReadyRead(kIpcTimeoutMs)) {
+            qWarning("QtLocalPeer: Message header reception failed %s", socket->errorString().toLatin1().constData());
+            delete socket;
+            return;
+        }
     }
     QDataStream ds(socket);
     QByteArray uMsg;
-    quint32 remaining;
+    quint32 remaining = 0;
     ds >> remaining;
+    if (ds.status() != QDataStream::Ok || remaining > kMaxMessageSize) {
+        qWarning("QtLocalPeer: Invalid incoming message size (%u)", remaining);
+        delete socket;
+        return;
+    }
     uMsg.resize(remaining);
     int got = 0;
     char* uMsgBuf = uMsg.data();
-    do {
+    while (remaining > 0) {
         got = ds.readRawData(uMsgBuf, remaining);
-        remaining -= got;
+        if (got < 0) {
+            break;
+        }
+        remaining -= static_cast<quint32>(got);
         uMsgBuf += got;
-    } while (remaining && got >= 0 && socket->waitForReadyRead(2000));
-    if (got < 0) {
+        if (remaining > 0 && !socket->waitForReadyRead(kIpcTimeoutMs)) {
+            got = -1;
+            break;
+        }
+    }
+    if (got < 0 || remaining > 0) {
         qWarning("QtLocalPeer: Message reception failed %s", socket->errorString().toLatin1().constData());
         delete socket;
         return;

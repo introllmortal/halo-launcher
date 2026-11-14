@@ -39,11 +39,13 @@
 #include "BuildConfig.h"
 #include "PageContainer_p.h"
 
+#include <QApplication>
 #include <QDialogButtonBox>
 #include <QGridLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListView>
+#include <QPixmap>
 #include <QPushButton>
 #include <QSortFilterProxyModel>
 #include <QStackedLayout>
@@ -54,6 +56,7 @@
 #include "settings/SettingsObject.h"
 
 #include "ui/widgets/IconLabel.h"
+#include "ui/widgets/UiAnimations.h"
 
 #include "Application.h"
 #include "DesktopServices.h"
@@ -88,7 +91,7 @@ PageContainer::PageContainer(BasePageProvider* pageProvider, QString defaultId, 
     auto pages = pageProvider->getPages();
     for (auto* page : pages) {
         auto* widget = dynamic_cast<QWidget*>(page);
-        widget->setParent(this);
+        widget->setParent(m_pageHost);
         page->stackIndex = m_pageStack->addWidget(widget);
         page->listIndex = counter;
         page->setParentContainer(this);
@@ -163,7 +166,8 @@ void PageContainer::refreshContainer()
 
 void PageContainer::createUI()
 {
-    m_pageStack = new QStackedLayout;
+    m_pageHost = new QWidget(this);
+    m_pageStack = new QStackedLayout(m_pageHost);
     m_pageList = new PageView;
     m_header = new QLabel();
 
@@ -176,18 +180,19 @@ void PageContainer::createUI()
     m_header->setFont(headerLabelFont);
 
     auto* headerHLayout = new QHBoxLayout;
-    const int leftMargin = APPLICATION->style()->pixelMetric(QStyle::PM_LayoutLeftMargin);
+    const QStyle* activeStyle = (APPLICATION_DYN && APPLICATION_DYN->style()) ? APPLICATION_DYN->style() : QApplication::style();
+    const int leftMargin = activeStyle ? activeStyle->pixelMetric(QStyle::PM_LayoutLeftMargin) : 0;
     headerHLayout->addSpacerItem(new QSpacerItem(leftMargin, 0, QSizePolicy::Fixed, QSizePolicy::Ignored));
     headerHLayout->addWidget(m_header);
     headerHLayout->setContentsMargins(0, 6, 0, 0);
 
     m_pageStack->setContentsMargins(0, 0, 0, 0);
-    m_pageStack->addWidget(new QWidget(this));
+    m_pageStack->addWidget(new QWidget(m_pageHost));
 
     m_layout = new QGridLayout;
     m_layout->addLayout(headerHLayout, 0, 1, 1, 1);
     m_layout->addWidget(m_pageList, 0, 0, 3, 1);
-    m_layout->addLayout(m_pageStack, 1, 1, 1, 1);
+    m_layout->addWidget(m_pageHost, 1, 1, 1, 1);
     m_layout->setColumnStretch(1, 4);
     m_layout->setContentsMargins(0, 0, 0, 0);
     setLayout(m_layout);
@@ -221,21 +226,35 @@ void PageContainer::useSidebarStyle(bool sidebar)
 
 void PageContainer::showPage(int row)
 {
+    const int previousRow = m_currentRow;
+    const bool validRow = row >= 0 && row < m_model->pages().size();
+    const bool shouldAnimate = m_hasShownPage && isVisible() && previousRow != -1 && validRow && row != previousRow &&
+                               UiAnimations::animationsEnabled() && m_pageHost && m_pageHost->size().isValid();
+    const QPixmap snapshot = shouldAnimate ? m_pageHost->grab() : QPixmap();
+
     if (m_currentPage) {
         m_currentPage->closed();
     }
-    if (row != -1) {
+    if (validRow) {
         m_currentPage = m_model->pages().at(row);
+        m_currentRow = row;
     } else {
         m_currentPage = nullptr;
+        m_currentRow = -1;
     }
     if (m_currentPage) {
         m_pageStack->setCurrentIndex(m_currentPage->stackIndex);
         m_header->setText(m_currentPage->displayName());
         m_currentPage->opened();
+        m_hasShownPage = true;
     } else {
         m_pageStack->setCurrentIndex(0);
         m_header->setText(QString());
+    }
+
+    if (!snapshot.isNull()) {
+        const int slideY = (previousRow < row) ? -7 : 7;
+        UiAnimations::TransitionOverlay::start(m_pageHost, snapshot, QPoint(0, slideY), 130);
     }
 }
 
@@ -254,7 +273,7 @@ void PageContainer::currentChanged(const QModelIndex& current)
 {
     int selectedIndex = current.isValid() ? m_proxyModel->mapToSource(current).row() : -1;
 
-    auto* selected = m_model->pages().at(selectedIndex);
+    auto* selected = (selectedIndex >= 0 && selectedIndex < m_model->pages().size()) ? m_model->pages().at(selectedIndex) : nullptr;
     auto* previous = m_currentPage;
 
     emit selectedPageChanged(previous, selected);
