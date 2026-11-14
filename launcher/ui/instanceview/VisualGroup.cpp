@@ -41,6 +41,7 @@
 #include <QModelIndex>
 #include <QPainter>
 #include <QtMath>
+#include <algorithm>
 #include <utility>
 
 #include "InstanceView.h"

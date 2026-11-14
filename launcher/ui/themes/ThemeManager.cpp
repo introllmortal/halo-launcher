@@ -35,9 +35,19 @@
 
 #include <QGuiApplication>
 #include <QStyleHints>
+#include <memory>
 
 #include "Application.h"
 #include "settings/SettingsObject.h"
+
+static void ensureHaloIconsResources()
+{
+    static bool initialized = false;
+    if (!initialized) {
+        initialized = true;
+        Q_INIT_RESOURCE(halo_icons);
+    }
+}
 
 ThemeManager::ThemeManager()
 {
@@ -102,11 +112,7 @@ void ThemeManager::initializeThemes()
 
 void ThemeManager::initializeIcons()
 {
-    static const bool haloIconsInitialized = [] {
-        Q_INIT_RESOURCE(halo_icons);
-        return true;
-    }();
-    Q_UNUSED(haloIconsInitialized);
+    ensureHaloIconsResources();
 
     // TODO: icon themes and instance icons do not mesh well together. Rearrange and fix discrepancies!
     // set icon theme search path!

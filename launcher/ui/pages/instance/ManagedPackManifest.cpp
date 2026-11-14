@@ -26,6 +26,7 @@
 #include <QPushButton>
 #include <QTextBrowser>
 #include <QVBoxLayout>
+#include <memory>
 #include <type_traits>
 
 #include "Application.h"

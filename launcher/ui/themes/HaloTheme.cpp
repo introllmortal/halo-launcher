@@ -22,16 +22,14 @@
 #include <QObject>
 #include <QStyleHints>
 
-namespace {
-void ensureHaloResources()
+static void ensureHaloResources()
 {
-    static const bool initialized = [] {
+    static bool initialized = false;
+    if (!initialized) {
+        initialized = true;
         Q_INIT_RESOURCE(halo);
-        return true;
-    }();
-    Q_UNUSED(initialized);
+    }
 }
-}  // namespace
 
 void HaloTheme::apply(bool initial)
 {
