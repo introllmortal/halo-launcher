@@ -26,7 +26,7 @@ jobs:
     needs: build_release
     permissions:
       contents: write
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-24.04
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
@@ -44,18 +44,35 @@ jobs:
       - name: Package artifacts properly
         run: |
           mv ${{ github.workspace }}/HaloLauncher-source HaloLauncher-${{ env.VERSION }}
-          mv HaloLauncher-Linux-Qt6-Portable*/HaloLauncher-portable.tar.gz HaloLauncher-Linux-Qt6-Portable-${{ env.VERSION }}.tar.gz
-          mv HaloLauncher-Linux-aarch64-Qt6-Portable*/HaloLauncher-portable.tar.gz HaloLauncher-Linux-aarch64-Qt6-Portable-${{ env.VERSION }}.tar.gz
-          mv HaloLauncher-*.AppImage/HaloLauncher-*-x86_64.AppImage HaloLauncher-Linux-x86_64.AppImage
-          mv HaloLauncher-*.AppImage.zsync/HaloLauncher-*-x86_64.AppImage.zsync HaloLauncher-Linux-x86_64.AppImage.zsync
-          mv HaloLauncher-*.AppImage/HaloLauncher-*-aarch64.AppImage HaloLauncher-Linux-aarch64.AppImage
-          mv HaloLauncher-*.AppImage.zsync/HaloLauncher-*-aarch64.AppImage.zsync HaloLauncher-Linux-aarch64.AppImage.zsync
-          mv HaloLauncher-macOS*/HaloLauncher.zip HaloLauncher-macOS-${{ env.VERSION }}.zip
-          mv HaloLauncher-macOS*/HaloLauncher.dmg HaloLauncher-macOS-${{ env.VERSION }}.dmg
+          for f in HaloLauncher-Linux-Qt6-Portable*/HaloLauncher-portable.tar.gz; do
+            [ -e "$f" ] && mv "$f" HaloLauncher-Linux-Qt6-Portable-${{ env.VERSION }}.tar.gz
+          done
+          for f in HaloLauncher-Linux-aarch64-Qt6-Portable*/HaloLauncher-portable.tar.gz; do
+            [ -e "$f" ] && mv "$f" HaloLauncher-Linux-aarch64-Qt6-Portable-${{ env.VERSION }}.tar.gz
+          done
+          for f in HaloLauncher-*.AppImage/HaloLauncher-*-x86_64.AppImage; do
+            [ -e "$f" ] && mv "$f" HaloLauncher-Linux-x86_64.AppImage
+          done
+          for f in HaloLauncher-*.AppImage.zsync/HaloLauncher-*-x86_64.AppImage.zsync; do
+            [ -e "$f" ] && mv "$f" HaloLauncher-Linux-x86_64.AppImage.zsync
+          done
+          for f in HaloLauncher-*.AppImage/HaloLauncher-*-aarch64.AppImage; do
+            [ -e "$f" ] && mv "$f" HaloLauncher-Linux-aarch64.AppImage
+          done
+          for f in HaloLauncher-*.AppImage.zsync/HaloLauncher-*-aarch64.AppImage.zsync; do
+            [ -e "$f" ] && mv "$f" HaloLauncher-Linux-aarch64.AppImage.zsync
+          done
+          for f in HaloLauncher-macOS*/HaloLauncher.zip; do
+            [ -e "$f" ] && mv "$f" HaloLauncher-macOS-${{ env.VERSION }}.zip
+          done
+          for f in HaloLauncher-macOS*/HaloLauncher.dmg; do
+            [ -e "$f" ] && mv "$f" HaloLauncher-macOS-${{ env.VERSION }}.dmg
+          done
 
           tar --exclude='.git' -czf HaloLauncher-${{ env.VERSION }}.tar.gz HaloLauncher-${{ env.VERSION }}
 
           for d in HaloLauncher-Windows-MSVC*; do
+            [ -d "${d}" ] || continue
             cd "${d}" || continue
             LEGACY="$(echo -n ${d} | grep -o Legacy || true)"
             ARM64="$(echo -n ${d} | grep -o arm64 || true)"
@@ -71,6 +88,7 @@ jobs:
           done
 
           for d in HaloLauncher-Windows-MinGW-w64*; do
+            [ -d "${d}" ] || continue
             cd "${d}" || continue
             INST="$(echo -n ${d} | grep -o Setup || true)"
             PORT="$(echo -n ${d} | grep -o Portable || true)"
@@ -82,6 +100,7 @@ jobs:
           done
 
           for d in HaloLauncher-Windows-MinGW-arm64*; do
+            [ -d "${d}" ] || continue
             cd "${d}" || continue
             INST="$(echo -n ${d} | grep -o Setup || true)"
             PORT="$(echo -n ${d} | grep -o Portable || true)"
@@ -97,7 +116,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: ${{ github.ref }}
+          tag_name: ${{ github.ref_name }}
           name: Halo Launcher ${{ env.VERSION }}
           draft: false
           prerelease: false

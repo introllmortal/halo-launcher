@@ -5,6 +5,16 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  workflow_call:
+    inputs:
+      build-type:
+        description: Type of build (Debug or Release)
+        type: string
+        default: Release
+      environment:
+        description: Deployment environment to run under
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       build-type:
