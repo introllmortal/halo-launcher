@@ -42,6 +42,7 @@
 #include "QObjectPtr.h"
 #include "settings/Setting.h"
 #include "settings/SettingsObject.h"
+#include "translations/TranslationsModel.h"
 
 #include "FileSystem.h"
 #include "MMCTime.h"
@@ -315,11 +316,14 @@ QSet<QString> MinecraftInstance::traits() const
 // FIXME: move UI code out of MinecraftInstance
 void MinecraftInstance::populateLaunchMenu(QMenu* menu)
 {
-    QAction* normalLaunch = menu->addAction(tr("&Launch"));
+    auto* translations = APPLICATION ? APPLICATION->translations() : nullptr;
+    QAction* normalLaunch = menu->addAction(TranslationsModel::trFallback(translations, tr("&Launch"), "&Launch", QStringLiteral("&Запустить")));
     normalLaunch->setShortcut(QKeySequence::Open);
-    QAction* normalLaunchOffline = menu->addAction(tr("Launch &Offline"));
+    QAction* normalLaunchOffline =
+        menu->addAction(TranslationsModel::trFallback(translations, tr("Launch &Offline"), "Launch &Offline", QStringLiteral("Запустить &автономно")));
     normalLaunchOffline->setShortcut(QKeySequence(tr("Ctrl+Shift+O")));
-    QAction* normalLaunchDemo = menu->addAction(tr("Launch &Demo"));
+    QAction* normalLaunchDemo =
+        menu->addAction(TranslationsModel::trFallback(translations, tr("Launch &Demo"), "Launch &Demo", QStringLiteral("Запустить &демо-версию")));
     normalLaunchDemo->setShortcut(QKeySequence(tr("Ctrl+Alt+O")));
 
     normalLaunchDemo->setEnabled(supportsDemo());
@@ -328,7 +332,7 @@ void MinecraftInstance::populateLaunchMenu(QMenu* menu)
     connect(normalLaunchOffline, &QAction::triggered, [this] { APPLICATION->launch(this, LaunchMode::Offline); });
     connect(normalLaunchDemo, &QAction::triggered, [this] { APPLICATION->launch(this, LaunchMode::Demo); });
 
-    QString profilersTitle = tr("Profilers");
+    QString profilersTitle = TranslationsModel::trFallback(translations, tr("Profilers"), "Profilers", QStringLiteral("Профилировщики"));
     menu->addSeparator()->setText(profilersTitle);
 
     auto profilers = new QActionGroup(menu);
@@ -338,7 +342,8 @@ void MinecraftInstance::populateLaunchMenu(QMenu* menu)
         emit profilerChanged();
     });
 
-    QAction* noProfilerAction = menu->addAction(tr("&No Profiler"));
+    QAction* noProfilerAction =
+        menu->addAction(TranslationsModel::trFallback(translations, tr("&No Profiler"), "&No Profiler", QStringLiteral("&Без профилировщика")));
     noProfilerAction->setData("");
     noProfilerAction->setCheckable(true);
     noProfilerAction->setChecked(true);

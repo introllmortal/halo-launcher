@@ -101,6 +101,7 @@ class InstanceView : public QAbstractItemView {
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
+    void leaveEvent(QEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
@@ -120,13 +121,13 @@ class InstanceView : public QAbstractItemView {
     visibilityFunction m_fVisibility;
 
     // geometry
-    int m_leftMargin = 5;
-    int m_rightMargin = 5;
-    int m_bottomMargin = 5;
-    int m_categoryMargin = 5;
-    int m_spacing = 5;
-    int m_itemWidth = 100;
-    int m_currentItemsPerRow = -1;
+    int m_leftMargin = 16;
+    int m_rightMargin = 16;
+    int m_bottomMargin = 16;
+    int m_categoryMargin = 12;
+    int m_spacing = 12;
+    int m_itemWidth = 168;
+    int m_currentItemsPerRow = 1;
     int m_currentCursorColumn = -1;
     mutable QCache<int, QRect> m_geometryCache;
     CatPainter* m_cat = nullptr;
@@ -134,9 +135,10 @@ class InstanceView : public QAbstractItemView {
     // point where the currently active mouse action started in geometry coordinates
     QPoint m_pressedPosition;
     QPersistentModelIndex m_pressedIndex;
-    bool m_pressedAlreadySelected;
-    VisualGroup* m_pressedCategory;
-    QItemSelectionModel::SelectionFlag m_ctrlDragSelectionFlag;
+    QPersistentModelIndex m_hoveredIndex;
+    bool m_pressedAlreadySelected = false;
+    VisualGroup* m_pressedCategory = nullptr;
+    QItemSelectionModel::SelectionFlag m_ctrlDragSelectionFlag = QItemSelectionModel::NoUpdate;
     QPoint m_lastDragPosition;
 
     VisualGroup* category(const QModelIndex& index) const;

@@ -24,11 +24,16 @@ class InstanceProxyModel : public QSortFilterProxyModel {
    public:
     InstanceProxyModel(QObject* parent = 0);
 
+    void setSearchQuery(const QString& query);
+    QString searchQuery() const { return m_searchQuery; }
+
    protected:
+    bool filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const override;
     QVariant data(const QModelIndex& index, int role) const override;
     bool lessThan(const QModelIndex& left, const QModelIndex& right) const override;
     bool subSortLessThan(const QModelIndex& left, const QModelIndex& right) const;
 
    private:
     QCollator m_naturalSort;
+    QString m_searchQuery;
 };

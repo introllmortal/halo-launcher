@@ -43,6 +43,7 @@
 #include <memory>
 
 #include <QMainWindow>
+#include <QPointer>
 #include <QProcess>
 #include <QTimer>
 
@@ -51,8 +52,12 @@
 
 class LaunchController;
 class NewsChecker;
+class QLineEdit;
+class QShowEvent;
 class QToolButton;
+class InstanceInspector;
 class InstanceProxyModel;
+class LauncherSidebar;
 class LabeledToolButton;
 class QLabel;
 class MinecraftLauncher;
@@ -75,6 +80,7 @@ class MainWindow : public QMainWindow {
     bool eventFilter(QObject* obj, QEvent* ev) override;
     void closeEvent(QCloseEvent* event) override;
     void changeEvent(QEvent* event) override;
+    void showEvent(QShowEvent* event) override;
 
     void checkInstancePathForProblems();
 
@@ -226,6 +232,7 @@ class MainWindow : public QMainWindow {
     void activateInstance(BaseInstance* instance);
     void setCatBackground(bool enabled);
     void updateInstanceToolIcon(QString new_icon);
+    void applyModernChromeVisibility();
     void setSelectedInstanceById(const QString& id);
     void updateStatusCenter();
     void setInstanceActionsEnabled(bool enabled);
@@ -241,16 +248,17 @@ class MainWindow : public QMainWindow {
     QToolButton* newsLabel = nullptr;
     QLabel* m_statusLeft = nullptr;
     QLabel* m_statusCenter = nullptr;
-    LabeledToolButton* changeIconButton = nullptr;
-    LabeledToolButton* renameButton = nullptr;
     QToolButton* helpMenuButton = nullptr;
+    LauncherSidebar* m_sidebar = nullptr;
+    InstanceInspector* m_inspector = nullptr;
+    QLineEdit* m_searchEdit = nullptr;
     KonamiCode* secretEventFilter = nullptr;
 
     std::shared_ptr<Setting> instanceToolbarSetting = nullptr;
 
     unique_qobject_ptr<NewsChecker> m_newsChecker;
 
-    BaseInstance* m_selectedInstance = nullptr;
+    QPointer<BaseInstance> m_selectedInstance;
     QString m_currentInstIcon;
 
     // managed by the application object

@@ -12,6 +12,40 @@
 #include <filesystem>
 namespace fs = std::filesystem;
 
+#if defined Q_OS_WIN32
+static bool canCreateWindowsSymlinks()
+{
+    if (qEnvironmentVariableIsSet("HALO_RUN_PRIVILEGED_TESTS")) {
+        return true;
+    }
+    static const bool supported = []() {
+        QTemporaryDir dir;
+        if (!dir.isValid()) {
+            return false;
+        }
+        const std::filesystem::path target = std::filesystem::path(dir.filePath("target.txt").toStdWString());
+        const std::filesystem::path link = std::filesystem::path(dir.filePath("link.txt").toStdWString());
+        QFile f(dir.filePath("target.txt"));
+        if (!f.open(QIODevice::WriteOnly)) {
+            return false;
+        }
+        f.close();
+        std::error_code ec;
+        std::filesystem::create_symlink(target, link, ec);
+        return !ec;
+    }();
+    return supported;
+}
+#define SKIP_IF_NO_SYMLINK_PRIVILEGE()                                                                                 \
+    if (!canCreateWindowsSymlinks()) {                                                                                 \
+        QSKIP("Windows symlink privileges unavailable (enable Developer Mode or set HALO_RUN_PRIVILEGED_TESTS=1)"); \
+    }
+#else
+#define SKIP_IF_NO_SYMLINK_PRIVILEGE() \
+    do {                               \
+    } while (false)
+#endif
+
 class LinkTask : public Task {
     Q_OBJECT
 
@@ -308,6 +342,7 @@ class FileSystemTest : public QObject {
 
     void test_link()
     {
+        SKIP_IF_NO_SYMLINK_PRIVILEGE();
         QString folder = QFINDTESTDATA("testdata/FileSystem/test_folder");
         auto f = [&folder]() {
             QTemporaryDir tempDir;
@@ -402,6 +437,7 @@ class FileSystemTest : public QObject {
 
     void test_link_with_blacklist()
     {
+        SKIP_IF_NO_SYMLINK_PRIVILEGE();
         QString folder = QFINDTESTDATA("testdata/FileSystem/test_folder");
         auto f = [&folder]() {
             QTemporaryDir tempDir;
@@ -448,6 +484,7 @@ class FileSystemTest : public QObject {
 
     void test_link_with_whitelist()
     {
+        SKIP_IF_NO_SYMLINK_PRIVILEGE();
         QString folder = QFINDTESTDATA("testdata/FileSystem/test_folder");
         auto f = [&folder]() {
             QTemporaryDir tempDir;
@@ -495,6 +532,7 @@ class FileSystemTest : public QObject {
 
     void test_link_with_dot_hidden()
     {
+        SKIP_IF_NO_SYMLINK_PRIVILEGE();
         QString folder = QFINDTESTDATA("testdata/FileSystem/test_folder");
         auto f = [&folder]() {
             QTemporaryDir tempDir;
@@ -542,6 +580,7 @@ class FileSystemTest : public QObject {
 
     void test_link_single_file()
     {
+        SKIP_IF_NO_SYMLINK_PRIVILEGE();
         QTemporaryDir tempDir;
         tempDir.setAutoRemove(true);
 
@@ -577,6 +616,7 @@ class FileSystemTest : public QObject {
 
     void test_link_with_max_depth()
     {
+        SKIP_IF_NO_SYMLINK_PRIVILEGE();
         QString folder = QFINDTESTDATA("testdata/FileSystem/test_folder");
         auto f = [&folder]() {
             QTemporaryDir tempDir;
@@ -627,6 +667,7 @@ class FileSystemTest : public QObject {
 
     void test_link_with_no_max_depth()
     {
+        SKIP_IF_NO_SYMLINK_PRIVILEGE();
         QString folder = QFINDTESTDATA("testdata/FileSystem/test_folder");
         auto f = [&folder]() {
             QTemporaryDir tempDir;

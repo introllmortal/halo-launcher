@@ -52,7 +52,7 @@ VisualGroup::VisualGroup(const VisualGroup* other) : view(other->view), text(oth
 void VisualGroup::update()
 {
     auto temp_items = items();
-    auto itemsPerRow = view->itemsPerRow();
+    const int itemsPerRow = qMax(1, view->itemsPerRow());
 
     int numRows = qMax(1, qCeil((qreal)temp_items.size() / (qreal)itemsPerRow));
     rows = QList<VisualRow>(numRows);
@@ -194,7 +194,7 @@ void VisualGroup::drawHeader(QPainter* painter, const QStyleOptionViewItem& opti
 
     // BEGIN: horizontal line
     {
-        penColor.setAlphaF(0.05f);
+        penColor.setAlphaF(0.14f);
         pen.setColor(penColor);
         painter->setPen(pen);
         // startPoint is left + arrow + text + space
@@ -221,8 +221,7 @@ int VisualGroup::headerHeight()
     font.setBold(true);
     QFontMetrics fontMetrics(font);
 
-    const int height = fontMetrics.height() + 1 /* 1 pixel-width gradient */
-                       + 11 /* top and bottom separation */;
+    const int height = fontMetrics.height() + 14;
     return height;
     /*
     int raw = view->viewport()->fontMetrics().height() + 4;

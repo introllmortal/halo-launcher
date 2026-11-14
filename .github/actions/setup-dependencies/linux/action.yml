@@ -1,5 +1,5 @@
 name: Setup Linux dependencies
-description: Install and setup dependencies for building Prism Launcher
+description: Install and setup dependencies for building Halo Launcher
 
 runs:
   using: composite

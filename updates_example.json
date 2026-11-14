@@ -1,8 +1,0 @@
-[
-  {
-    "version": "1.0.0",
-    "name": "Modpack Name - 1.0.0",
-    "changelog": "## Version 1.0.0 Release\n\n- Initial stable release.\n- Updated performance configurations and questlines.\n- Optimized mod list and compatibility fixes.",
-    "url": "https://github.com/author/modpack/releases/download/v1.0.0/modpack-1.0.0.mrpack"
-  }
-]

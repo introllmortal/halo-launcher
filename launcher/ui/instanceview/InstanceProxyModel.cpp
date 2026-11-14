@@ -16,6 +16,7 @@
 #include "InstanceProxyModel.h"
 
 #include <BaseInstance.h>
+#include <InstanceList.h>
 #include <icons/IconList.h>
 #include "Application.h"
 #include "InstanceView.h"
@@ -28,6 +29,40 @@ InstanceProxyModel::InstanceProxyModel(QObject* parent) : QSortFilterProxyModel(
     m_naturalSort.setCaseSensitivity(Qt::CaseSensitivity::CaseInsensitive);
     // FIXME: use loaded translation as source of locale instead, hook this up to translation changes
     m_naturalSort.setLocale(QLocale::system());
+}
+
+void InstanceProxyModel::setSearchQuery(const QString& query)
+{
+    const QString trimmed = query.trimmed();
+    if (m_searchQuery == trimmed) {
+        return;
+    }
+    m_searchQuery = trimmed;
+    invalidateFilter();
+}
+
+bool InstanceProxyModel::filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const
+{
+    if (m_searchQuery.isEmpty()) {
+        return true;
+    }
+    const QModelIndex idx = sourceModel()->index(sourceRow, 0, sourceParent);
+    if (!idx.isValid()) {
+        return false;
+    }
+    const QString name = idx.data(Qt::DisplayRole).toString();
+    if (name.contains(m_searchQuery, Qt::CaseInsensitive)) {
+        return true;
+    }
+    const QString group = idx.data(InstanceViewRoles::GroupRole).toString();
+    if (group.contains(m_searchQuery, Qt::CaseInsensitive)) {
+        return true;
+    }
+    auto* inst = static_cast<BaseInstance*>(idx.data(InstanceList::InstancePointerRole).value<void*>());
+    if (inst && inst->isManagedPack() && inst->getManagedPackName().contains(m_searchQuery, Qt::CaseInsensitive)) {
+        return true;
+    }
+    return false;
 }
 
 QVariant InstanceProxyModel::data(const QModelIndex& index, int role) const

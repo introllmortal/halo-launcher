@@ -50,16 +50,18 @@ if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
         "$<$<AND:$<CONFIG:Release,RelWithDebInfo>,$<COMPILE_LANGUAGE:C,CXX>>:/Gw;/Gy;/guard:cf>"
     )
 
+    option(Launcher_MSVC_LTCG "Enable MSVC /GL and /LTCG whole-program optimization" ON)
+
     add_link_options(
         # /LTCG allows for linking wholy optimizated programs
         # /MANIFEST:NO disables generating a manifest file, we instead provide our own
         # /STACK sets the stack reserve size, ATL's pack list needs 3-4 MiB as of November 2022, provide 8 MiB
-        "$<$<COMPILE_LANGUAGE:C,CXX>:/LTCG;/MANIFEST:NO;/STACK:8388608>"
+        "$<$<COMPILE_LANGUAGE:C,CXX>:$<$<BOOL:${Launcher_MSVC_LTCG}>:/LTCG>;/MANIFEST:NO;/STACK:8388608>"
     )
 
     # /GL enables whole program optimizations
     # NOTE: With Clang, this is implemented as regular LTO and only used during linking
-    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    if(Launcher_MSVC_LTCG AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         add_compile_options("$<$<AND:$<CONFIG:Release,RelWithDebInfo>,$<COMPILE_LANGUAGE:C,CXX>>:/GL>")
     endif()
 
@@ -175,10 +177,10 @@ endif()
 ##################################### Set Application options #####################################
 
 ######## Set URLs ########
-set(Launcher_NEWS_RSS_URL "" CACHE STRING "URL to fetch Prism Launcher's news RSS feed from.")
+set(Launcher_NEWS_RSS_URL "" CACHE STRING "URL to fetch Halo Launcher's news RSS feed from.")
 set(Launcher_NEWS_OPEN_URL "" CACHE STRING "URL that gets opened when the user clicks 'More News'")
-set(Launcher_WIKI_URL "https://prismlauncher.org/wiki/" CACHE STRING "URL that gets opened when the user clicks 'Launcher Help'")
-set(Launcher_HELP_URL "https://prismlauncher.org/wiki/help-pages/%1" CACHE STRING "URL (with arg %1 to be substituted with page-id) that gets opened when the user requests help in a dialog window")
+set(Launcher_WIKI_URL "https://github.com/introllmortal/halo-launcher/wiki" CACHE STRING "URL that gets opened when the user clicks 'Launcher Help'")
+set(Launcher_HELP_URL "https://github.com/introllmortal/halo-launcher/wiki/%1" CACHE STRING "URL (with arg %1 to be substituted with page-id) that gets opened when the user requests help in a dialog window")
 set(Launcher_LOGIN_CALLBACK_URL "https://pineconemc.ru/successful-login" CACHE STRING "URL that gets opened when the user successfully logins.")
 set(Launcher_LEGACY_FMLLIBS_BASE_URL "https://files.pineconemc.ru/fmllibs/" CACHE STRING "URL for legacy (<=1.5.2) FML Libraries.")
 
@@ -296,7 +298,7 @@ set(Launcher_BUILD_TIMESTAMP "${TODAY}")
 # Find the required Qt parts
 if(Launcher_QT_VERSION_MAJOR EQUAL 6)
     set(QT_VERSION_MAJOR 6)
-    find_package(Qt6 6.8 REQUIRED COMPONENTS Core CoreTools Widgets Concurrent Network Test Xml NetworkAuth OpenGL)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Core CoreTools Widgets Concurrent Network Test Xml NetworkAuth)
     find_package(Qt6 COMPONENTS DBus)
     list(APPEND Launcher_QT_DBUS Qt6::DBus)
 else()

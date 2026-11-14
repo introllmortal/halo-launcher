@@ -648,7 +648,8 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
 
         // Theming
         m_settings->registerSetting("IconTheme", QString("flat_white"));
-        m_settings->registerSetting("ApplicationTheme", QString("dark"));
+        m_settings->registerSetting("ApplicationTheme", QString("halo"));
+        m_settings->registerSetting("HaloModernUiMigrated", false);
         m_settings->registerSetting("BackgroundCat", QString("kitteh"));
         m_settings->registerSetting("CatButtonVisible", true);
 
@@ -1093,14 +1094,15 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
                               "\n"
                               "This likely means that a update attempt failed. Please ensure your installation is in working order before "
                               "proceeding.\n"
-                              "Check the Prism Launcher updater log at: \n"
+                              "Check the %8 updater log at: \n"
                               "%7\n"
                               "for details on the last update attempt.\n"
                               "\n"
                               "To delete this lock and proceed select \"Ignore\" below.")
                                .arg(update_lock.absoluteFilePath())
                                .arg(timestamp.toString(Qt::ISODate), from, to, target, data_path)
-                               .arg(update_log_path);
+                               .arg(update_log_path)
+                               .arg(BuildConfig.LAUNCHER_DISPLAYNAME);
             auto msgBox = QMessageBox(QMessageBox::Warning, tr("Update In Progress"), infoMsg, QMessageBox::Ignore | QMessageBox::Abort);
             msgBox.setDefaultButton(QMessageBox::Abort);
             msgBox.setModal(true);
@@ -1129,10 +1131,10 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
                               "\n"
                               "Please ensure your installation is in working order before "
                               "proceeding.\n"
-                              "Check the Prism Launcher updater log at: \n"
+                              "Check the %2 updater log at: \n"
                               "%1\n"
                               "for details on the last update attempt.")
-                               .arg(update_log_path);
+                               .arg(update_log_path, BuildConfig.LAUNCHER_DISPLAYNAME);
             auto msgBox = QMessageBox(QMessageBox::Warning, tr("Update Failed"), infoMsg, QMessageBox::Ignore | QMessageBox::Abort);
             msgBox.setDefaultButton(QMessageBox::Abort);
             msgBox.setModal(true);
@@ -1160,11 +1162,10 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
             auto infoMsg = tr("Update succeeded\n"
                               "\n"
                               "You are now running %1 .\n"
-                              "Check the Prism Launcher updater log at: \n"
+                              "Check the %3 updater log at: \n"
                               "%2\n"
                               "for details.")
-                               .arg(BuildConfig.printableVersionString())
-                               .arg(update_log_path);
+                               .arg(BuildConfig.printableVersionString(), update_log_path, BuildConfig.LAUNCHER_DISPLAYNAME);
             auto msgBox = new QMessageBox(QMessageBox::Information, tr("Update Succeeded"), infoMsg, QMessageBox::Ok);
             msgBox->setDefaultButton(QMessageBox::Ok);
             msgBox->setDetailedText(FS::read(update_log_path));
@@ -1214,6 +1215,13 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
 
     if (qgetenv("XDG_CURRENT_DESKTOP") == "gamescope") {
         installEventFilter(new ToolTipFilter);
+    }
+
+    if (!m_settings->get("HaloModernUiMigrated").toBool()) {
+        if (m_settings->get("ApplicationTheme").toString() == QLatin1String("dark")) {
+            m_settings->set("ApplicationTheme", QStringLiteral("halo"));
+        }
+        m_settings->set("HaloModernUiMigrated", true);
     }
 
     if (createSetupWizard()) {

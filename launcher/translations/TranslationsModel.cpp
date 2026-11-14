@@ -643,3 +643,17 @@ void TranslationsModel::indexFailed(const QString& reason) const
     qCritical() << "Translations Index Download Failed:" << reason;
     d->m_indexJob.reset();
 }
+
+QString TranslationsModel::trFallback(const TranslationsModel* model,
+                                      const QString& translated,
+                                      const char* englishLiteral,
+                                      const QString& ruFallback)
+{
+    if (translated != QLatin1String(englishLiteral)) {
+        return translated;
+    }
+    if (model && model->selectedLanguage().startsWith(QStringLiteral("ru"), Qt::CaseInsensitive)) {
+        return ruFallback;
+    }
+    return translated;
+}

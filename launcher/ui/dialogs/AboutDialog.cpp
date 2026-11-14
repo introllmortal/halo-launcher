@@ -39,12 +39,13 @@
 #include "BuildConfig.h"
 #include "Markdown.h"
 #include "StringUtils.h"
+#include "translations/TranslationsModel.h"
 #include "ui_AboutDialog.h"
 
 #include <net/NetJob.h>
 
 namespace {
-QString getCreditsHtml()
+QString getCreditsHtml(const TranslationsModel* translations)
 {
     QFile dataFile(":/documents/credits.html");
     if (!dataFile.open(QIODevice::ReadOnly)) {
@@ -54,8 +55,16 @@ QString getCreditsHtml()
     QString fileContent = QString::fromUtf8(dataFile.readAll());
     dataFile.close();
 
-    return fileContent.arg(QObject::tr("Prism Launcher Developers"), QObject::tr("MultiMC Developers"),
-                           QObject::tr("With special thanks to"), QObject::tr("%1 Developers").arg(BuildConfig.LAUNCHER_DISPLAYNAME));
+    return fileContent.arg(
+        TranslationsModel::trFallback(translations, QObject::tr("Prism Launcher Contributors"), "Prism Launcher Contributors", QStringLiteral("Участники Prism Launcher")),
+        TranslationsModel::trFallback(translations, QObject::tr("MultiMC Developers"), "MultiMC Developers", QStringLiteral("Разработчики MultiMC")),
+        TranslationsModel::trFallback(translations, QObject::tr("With special thanks to"), "With special thanks to", QStringLiteral("Отдельная благодарность")),
+        TranslationsModel::trFallback(translations, QObject::tr("%1 Developer"), "%1 Developer", QStringLiteral("Разработчик %1"))
+            .arg(BuildConfig.LAUNCHER_DISPLAYNAME),
+        TranslationsModel::trFallback(translations,
+                                      QObject::tr("Open-source components and prior contributors (GPL-3.0):"),
+                                      "Open-source components and prior contributors (GPL-3.0):",
+                                      QStringLiteral("Открытые компоненты и контрибьюторы базы (GPL-3.0):")));
 }
 
 QString getLicenseHtml()
@@ -78,10 +87,21 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent), ui(new Ui::AboutDia
     ui->setupUi(this);
 
     QString launcherName = BuildConfig.LAUNCHER_DISPLAYNAME;
+    auto* translations = APPLICATION ? APPLICATION->translations() : nullptr;
 
-    setWindowTitle(tr("About %1").arg(launcherName));
+    setWindowTitle(TranslationsModel::trFallback(translations, tr("About %1"), "About %1", QStringLiteral("О программе %1")).arg(launcherName));
+    ui->tabWidget->setTabText(0, TranslationsModel::trFallback(translations, tr("About"), "About", QStringLiteral("О программе")));
+    ui->tabWidget->setTabText(1, TranslationsModel::trFallback(translations, tr("Credits"), "Credits", QStringLiteral("Авторы")));
+    ui->tabWidget->setTabText(2, TranslationsModel::trFallback(translations, tr("License"), "License", QStringLiteral("Лицензия")));
+    ui->aboutQt->setText(TranslationsModel::trFallback(translations, tr("About Qt"), "About Qt", QStringLiteral("О Qt")));
+    ui->closeButton->setText(TranslationsModel::trFallback(translations, tr("Close"), "Close", QStringLiteral("Закрыть")));
+    ui->aboutLabel->setText(
+        TranslationsModel::trFallback(translations,
+                                      tr("A standalone Minecraft launcher for managing instances, mods, resource packs, and accounts."),
+                                      "A standalone Minecraft launcher for managing instances, mods, resource packs, and accounts.",
+                                      QStringLiteral("Самостоятельный лаунчер Minecraft для управления сборками, модами, ресурспаками и аккаунтами.")));
 
-    QString chtml = getCreditsHtml();
+    QString chtml = getCreditsHtml(translations);
     ui->creditsText->setHtml(StringUtils::htmlListPatch(chtml));
 
     QString lhtml = getLicenseHtml();

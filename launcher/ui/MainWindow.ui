@@ -6,9 +6,15 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>800</width>
-    <height>600</height>
+    <width>1120</width>
+    <height>680</height>
    </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>860</width>
+    <height>560</height>
+   </size>
   </property>
   <widget class="QWidget" name="centralWidget">
    <layout class="QHBoxLayout" name="horizontalLayout">
@@ -464,7 +470,7 @@
     <iconset theme="launcher"/>
    </property>
    <property name="text">
-    <string>Prism Launcher (zip)</string>
+    <string>Halo Launcher (zip)</string>
    </property>
   </action>
   <action name="actionExportInstanceMrPack">

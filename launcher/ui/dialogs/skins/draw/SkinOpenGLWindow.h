@@ -47,15 +47,11 @@ class SkinOpenGLWindow : public QWidget {
     void updateCape(const QImage& cape);
     void setElytraVisible(bool visible);
 
-    static bool hasOpenGL();
-
-   signals:
-    void renderFailed();
-
    protected:
     void mousePressEvent(QMouseEvent* e) override;
     void mouseReleaseEvent(QMouseEvent* e) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
 
@@ -85,5 +81,6 @@ class SkinOpenGLWindow : public QWidget {
     bool m_pendingElytra = false;
     bool m_elytraDirty = false;
 
+    QImage m_frameBuffer;
     std::vector<float> m_zBuffer;
 };

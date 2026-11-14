@@ -16,13 +16,13 @@
     Path to the source instance directory. Defaults to standard instances folder.
 
 .PARAMETER Repo
-    GitHub repository in 'owner/repo' format (default: introllmortal/mindice-modpack).
+    GitHub repository in 'owner/repo' format (e.g. 'owner/my-modpack').
 
 .PARAMETER Token
     GitHub Personal Access Token with repo scope. Can also be set via GITHUB_TOKEN environment variable.
 
 .EXAMPLE
-    .\publish_modpack.ps1 -Version "1.0.0" -Changelog "Initial release"
+    .\publish_modpack.ps1 -Version "1.0.0" -Repo "owner/my-modpack" -InstancePath "C:\path\to\instance" -Changelog "Initial release"
 #>
 
 [CmdletBinding()]
@@ -34,19 +34,25 @@ param(
     [string]$Changelog,
 
     [Parameter()]
-    [string]$InstancePath = "$env:APPDATA\PrismLauncher\instances\Create_Clockwork_Empire_Prism",
+    [string]$InstancePath,
 
     [Parameter()]
-    [string]$Repo = "introllmortal/mindice-modpack",
+    [string]$Repo,
 
     [Parameter()]
     [string]$Token = $env:GITHUB_TOKEN,
 
     [Parameter()]
-    [string]$PackId = "Create_Clockwork_Empire",
+    [string]$PackId = "custom-modpack",
 
     [Parameter()]
-    [string]$PackName = "Create Clockwork Empire",
+    [string]$PackName = "Custom Modpack",
+
+    [Parameter()]
+    [string]$IconPath,
+
+    [Parameter()]
+    [string]$LocalRepoPath,
 
     [Parameter()]
     [string]$OutputDir = "$PSScriptRoot\..\dist_modpack"
@@ -87,6 +93,18 @@ if (-not $Changelog) {
     }
 }
 
+if (-not $Repo) {
+    $Repo = Read-Host -Prompt "Enter GitHub repository in 'owner/repo' format"
+}
+if (-not $Repo) {
+    Write-Error "Target GitHub repository (-Repo) is required."
+    exit 1
+}
+
+if (-not $InstancePath) {
+    $InstancePath = Join-Path $env:APPDATA "HaloLauncher\instances\$PackId"
+}
+
 if (-not (Test-Path $InstancePath)) {
     Write-Error "Source instance path not found: $InstancePath"
     exit 1
@@ -112,10 +130,8 @@ if (Test-Path $srcMmcPack) {
 }
 
 # 3. Copy Icon if present
-$iconSrc = "$env:APPDATA\PrismLauncher\icons\clockwork_empire.jpg"
-if (Test-Path $iconSrc) {
-    Copy-Item $iconSrc (Join-Path $stagingDir "clockwork_empire.jpg") -Force
-    Copy-Item $iconSrc (Join-Path $stagingDir "icon.png") -Force
+if ($IconPath -and (Test-Path $IconPath)) {
+    Copy-Item $IconPath (Join-Path $stagingDir "icon.png") -Force
 }
 
 # 4. Generate Clean instance.cfg
@@ -129,7 +145,6 @@ ManagedPackName="$PackName"
 ManagedPackVersionID=$Version
 ManagedPackVersionName="$Version"
 ManagedPackURL=https://raw.githubusercontent.com/$Repo/main/updates.json
-iconKey=clockwork_empire
 InstanceType=OneSix
 name=$PackName
 "@
@@ -415,18 +430,17 @@ if ($existingManifestSha) {
 $putBodyJson = $putBody | ConvertTo-Json -Compress
 $putResult = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/contents/$manifestPath" -Method Put -Headers $headers -Body $putBodyJson -ContentType "application/json; charset=utf-8"
 
-# Also sync local git repository if present
-$localRepoPath = "C:\Users\kerom\source\mindice-modpack"
-if (Test-Path $localRepoPath) {
-    Set-Content -Path (Join-Path $localRepoPath "updates.json") -Value $updatedJsonString -Encoding UTF8
+# Also sync local git repository if explicitly provided
+if ($LocalRepoPath -and (Test-Path $LocalRepoPath)) {
+    Set-Content -Path (Join-Path $LocalRepoPath "updates.json") -Value $updatedJsonString -Encoding UTF8
     if (Test-Path $deltaManifestOutPath) {
-        Copy-Item -Path $deltaManifestOutPath -Destination (Join-Path $localRepoPath "delta_manifest.json") -Force
+        Copy-Item -Path $deltaManifestOutPath -Destination (Join-Path $LocalRepoPath "delta_manifest.json") -Force
     }
     try {
-        git -C $localRepoPath add updates.json README.md delta_manifest.json
-        git -C $localRepoPath commit -m "chore: update modpack manifest for v$Version with delta sync"
-        git -C $localRepoPath push origin main
-        Write-Host "Local repository mindice-modpack synchronized with remote." -ForegroundColor Green
+        git -C $LocalRepoPath add updates.json delta_manifest.json
+        git -C $LocalRepoPath commit -m "chore: update modpack manifest for v$Version with delta sync"
+        git -C $LocalRepoPath push origin main
+        Write-Host "Local repository synchronized with remote." -ForegroundColor Green
     } catch {
         Write-Warning "Could not push local git repository: $_"
     }

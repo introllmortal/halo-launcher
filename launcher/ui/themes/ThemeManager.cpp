@@ -30,7 +30,11 @@
 #include "ui/themes/CatPack.h"
 #include "ui/themes/CustomTheme.h"
 #include "ui/themes/DarkTheme.h"
+#include "ui/themes/HaloTheme.h"
 #include "ui/themes/SystemTheme.h"
+
+#include <QGuiApplication>
+#include <QStyleHints>
 
 #include "Application.h"
 #include "settings/SettingsObject.h"
@@ -134,6 +138,7 @@ void ThemeManager::initializeIcons()
 void ThemeManager::initializeWidgets()
 {
     themeDebugLog() << "<> Initializing Widget Themes";
+    themeDebugLog() << "Loading Built-in Theme:" << addTheme(std::make_unique<HaloTheme>());
     themeDebugLog() << "Loading Built-in Theme:" << addTheme(std::make_unique<SystemTheme>(m_defaultStyle, m_defaultPalette, true));
     auto darkThemeId = addTheme(std::make_unique<DarkTheme>());
     themeDebugLog() << "Loading Built-in Theme:" << darkThemeId;
@@ -258,6 +263,11 @@ void ThemeManager::setApplicationTheme(const QString& name, bool initial)
     if (themeIter != m_themes.end()) {
         auto& theme = themeIter->second;
         themeDebugLog() << "applying theme" << theme->name();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+        if (auto* hints = QGuiApplication::styleHints()) {
+            hints->unsetColorScheme();
+        }
+#endif
         theme->apply(initial);
         setTitlebarColorOfAllWindowsOnMac(qApp->palette().window().color());
 

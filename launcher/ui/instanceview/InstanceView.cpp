@@ -54,6 +54,7 @@
 
 #include <Application.h>
 #include <InstanceList.h>
+#include "translations/TranslationsModel.h"
 
 template <typename T>
 bool listsIntersect(const QList<T>& l1, const QList<T> t2)
@@ -70,6 +71,8 @@ InstanceView::InstanceView(QWidget* parent) : QAbstractItemView(parent)
 {
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    setMouseTracking(true);
+    viewport()->setMouseTracking(true);
     setAcceptDrops(true);
     setAutoScroll(true);
     setPaintCat(APPLICATION->settings()->get("TheCat").toBool());
@@ -88,9 +91,18 @@ InstanceView::~InstanceView()
 
 void InstanceView::setModel(QAbstractItemModel* model)
 {
+    if (auto* prevModel = this->model()) {
+        disconnect(prevModel, &QAbstractItemModel::modelReset, this, &InstanceView::modelReset);
+        disconnect(prevModel, &QAbstractItemModel::rowsRemoved, this, &InstanceView::rowsRemoved);
+        disconnect(prevModel, &QAbstractItemModel::layoutChanged, this, &InstanceView::modelReset);
+    }
     QAbstractItemView::setModel(model);
+    if (!model) {
+        return;
+    }
     connect(model, &QAbstractItemModel::modelReset, this, &InstanceView::modelReset);
     connect(model, &QAbstractItemModel::rowsRemoved, this, &InstanceView::rowsRemoved);
+    connect(model, &QAbstractItemModel::layoutChanged, this, &InstanceView::modelReset);
 }
 
 void InstanceView::dataChanged([[maybe_unused]] const QModelIndex& topLeft,
@@ -179,6 +191,10 @@ void InstanceView::updateScrollbar()
 void InstanceView::updateGeometries()
 {
     m_geometryCache.clear();
+    m_pressedCategory = nullptr;
+    if (!model()) {
+        return;
+    }
 
     QMap<LocaleString, VisualGroup*> cats;
 
@@ -258,7 +274,7 @@ QString InstanceView::groupNameAt(const QPoint& point)
 
 int InstanceView::calculateItemsPerRow() const
 {
-    return qFloor((qreal)(contentWidth()) / (qreal)(itemWidth() + m_spacing));
+    return qMax(1, qFloor((qreal)(contentWidth() + m_spacing) / (qreal)(itemWidth() + m_spacing)));
 }
 
 int InstanceView::contentWidth() const
@@ -324,6 +340,18 @@ void InstanceView::mouseMoveEvent(QMouseEvent* event)
     QPoint topLeft;
     QPoint visualPos = event->pos();
     QPoint geometryPos = event->pos() + offset();
+
+    const QModelIndex hovered = indexAt(visualPos);
+    if (hovered != m_hoveredIndex) {
+        const QModelIndex prevHovered = m_hoveredIndex;
+        m_hoveredIndex = hovered;
+        if (prevHovered.isValid()) {
+            viewport()->update(visualRect(prevHovered));
+        }
+        if (m_hoveredIndex.isValid()) {
+            viewport()->update(visualRect(m_hoveredIndex));
+        }
+    }
 
     if (state() == ExpandingState || state() == CollapsingState) {
         return;
@@ -398,6 +426,7 @@ void InstanceView::mouseReleaseEvent(QMouseEvent* event)
         }
     }
 
+    m_pressedCategory = nullptr;
     m_ctrlDragSelectionFlag = QItemSelectionModel::NoUpdate;
 
     setState(NoState);
@@ -440,6 +469,16 @@ void InstanceView::mouseDoubleClickEvent(QMouseEvent* event)
     }
 }
 
+void InstanceView::leaveEvent(QEvent* event)
+{
+    if (m_hoveredIndex.isValid()) {
+        const QModelIndex prevHovered = m_hoveredIndex;
+        m_hoveredIndex = QModelIndex();
+        viewport()->update(visualRect(prevHovered));
+    }
+    QAbstractItemView::leaveEvent(event);
+}
+
 void InstanceView::setPaintCat(bool visible)
 {
     if (m_cat) {
@@ -469,40 +508,46 @@ void InstanceView::paintEvent([[maybe_unused]] QPaintEvent* event)
 
     if (model()->rowCount() == 0) {
         painter.save();
-        QString emptyString = tr("Welcome!") + "\n" + tr("Click \"Add Instance\" to get started.");
+        auto* translations = APPLICATION ? APPLICATION->translations() : nullptr;
+        QString emptyTitle =
+            TranslationsModel::trFallback(translations, tr("No instances found"), "No instances found", QStringLiteral("Сборки не найдены"));
+        QString emptyHint = TranslationsModel::trFallback(translations,
+                                                          tr("Click \"Add Instance\" or adjust your search."),
+                                                          "Click \"Add Instance\" or adjust your search.",
+                                                          QStringLiteral("Нажмите «Добавить сборку» или измените запрос поиска."));
+        QString emptyString = emptyTitle + "\n" + emptyHint;
 
-        // calculate the rect for the overlay
         painter.setRenderHint(QPainter::Antialiasing, true);
-        QFont font("sans", 20);
-        font.setBold(true);
+        QFont font = painter.font();
+        font.setPointSize(13);
+        font.setWeight(QFont::DemiBold);
 
         QRect bounds = viewport()->geometry();
         bounds.moveTop(0);
         auto innerBounds = bounds;
-        innerBounds.adjust(10, 10, -10, -10);
+        innerBounds.adjust(24, 24, -24, -24);
 
-        QColor background = QApplication::palette().color(QPalette::WindowText);
-        QColor foreground = QApplication::palette().color(QPalette::Base);
-        foreground.setAlpha(190);
+        const bool isDark = option.palette.color(QPalette::Window).lightness() < 128;
+        QColor cardBg = isDark ? QColor(24, 27, 34, 220) : QColor(255, 255, 255, 230);
+        QColor borderCol = isDark ? QColor(46, 52, 66) : QColor(203, 213, 225);
+        QColor textCol = option.palette.color(QPalette::Text);
+
         painter.setFont(font);
         auto fontMetrics = painter.fontMetrics();
         auto textRect = fontMetrics.boundingRect(innerBounds, Qt::AlignHCenter | Qt::TextWordWrap, emptyString);
         textRect.moveCenter(bounds.center());
 
-        auto wrapRect = textRect;
-        wrapRect.adjust(-10, -10, 10, 10);
-
-        // check if we are allowed to draw in our area
+        auto wrapRect = textRect.adjusted(-24, -16, 24, 16);
         if (!event->rect().intersects(wrapRect)) {
+            painter.restore();
             return;
         }
 
-        painter.setBrush(QBrush(background));
-        painter.setPen(foreground);
-        painter.drawRoundedRect(wrapRect, 5.0, 5.0);
+        painter.setBrush(cardBg);
+        painter.setPen(QPen(borderCol, 1.0));
+        painter.drawRoundedRect(wrapRect, 12.0, 12.0);
 
-        painter.setPen(foreground);
-        painter.setFont(font);
+        painter.setPen(textCol);
         painter.drawText(textRect, Qt::AlignHCenter | Qt::TextWordWrap, emptyString);
 
         painter.restore();
@@ -524,20 +569,31 @@ void InstanceView::paintEvent([[maybe_unused]] QPaintEvent* event)
         option.rect = backup;
     }
 
+    const QStyle::State baseState = option.state;
     for (int i = 0; i < model()->rowCount(); ++i) {
         const QModelIndex index = model()->index(i, 0);
         if (isIndexHidden(index)) {
             continue;
         }
         Qt::ItemFlags flags = index.flags();
+        option.state = baseState;
         option.rect = visualRect(index);
         option.features |= QStyleOptionViewItem::WrapText;
-        if (flags & Qt::ItemIsSelectable && selectionModel()->isSelected(index)) {
-            option.state |= selectionModel()->isSelected(index) ? QStyle::State_Selected : QStyle::State_None;
+        if ((flags & Qt::ItemIsSelectable) && selectionModel()->isSelected(index)) {
+            option.state |= QStyle::State_Selected;
         } else {
             option.state &= ~QStyle::State_Selected;
         }
-        option.state |= (index == currentIndex()) ? QStyle::State_HasFocus : QStyle::State_None;
+        if (index == currentIndex()) {
+            option.state |= QStyle::State_HasFocus;
+        } else {
+            option.state &= ~QStyle::State_HasFocus;
+        }
+        if (index == m_hoveredIndex) {
+            option.state |= QStyle::State_MouseOver;
+        } else {
+            option.state &= ~QStyle::State_MouseOver;
+        }
         if (!(flags & Qt::ItemIsEnabled)) {
             option.state &= ~QStyle::State_Enabled;
         }
@@ -713,6 +769,9 @@ QRect InstanceView::geometryRect(const QModelIndex& index) const
     }
 
     const VisualGroup* cat = category(index);
+    if (!cat) {
+        return QRect();
+    }
     QPair<int, int> pos = cat->positionOf(index);
     int x = pos.first;
     // int y = pos.second;
@@ -721,8 +780,8 @@ QRect InstanceView::geometryRect(const QModelIndex& index) const
     initViewItemOption(&option);
 
     QRect out;
-    out.setTop(cat->verticalPosition() + cat->headerHeight() + 5 + cat->rowTopOf(index));
-    out.setLeft(m_spacing + x * (itemWidth() + m_spacing));
+    out.setTop(cat->verticalPosition() + cat->headerHeight() + 6 + cat->rowTopOf(index));
+    out.setLeft(m_leftMargin + x * (itemWidth() + m_spacing));
     out.setSize(itemDelegate()->sizeHint(option, index));
     m_geometryCache.insert(row, new QRect(out));
     return out;
@@ -833,7 +892,7 @@ QModelIndex InstanceView::moveCursor(QAbstractItemView::CursorAction cursorActio
     }
     auto cat = category(current);
     int group_index = m_groups.indexOf(cat);
-    if (group_index < 0)
+    if (group_index < 0 || cat->rows.isEmpty())
         return current;
 
     QPair<int, int> pos = cat->positionOf(current);

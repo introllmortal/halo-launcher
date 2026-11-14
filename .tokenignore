@@ -12,3 +12,11 @@ launcher/ui/themes/ThemeManager.cpp
 launcher/ui/MainWindow.cpp
 launcher/ui/pages/instance/ManagedPackPage.cpp
 launcher/diagnostics/CrashAssistantTranslator.cpp
+launcher/minecraft/MinecraftInstance.cpp
+launcher/tasks/DeltaSyncTask.cpp
+launcher/translations/TranslationsModel.cpp
+launcher/ui/MainWindow.ui
+launcher/ui/instanceview/InstanceView.cpp
+launcher/ui/pages/global/LauncherPage.ui
+launcher/updater/prismupdater/PrismUpdater.cpp
+tests/FileSystem_test.cpp

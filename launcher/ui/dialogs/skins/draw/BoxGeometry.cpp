@@ -156,7 +156,27 @@ struct ClipVertex {
     QVector2D uv;
 };
 
-void rasterizeTriangle(const std::array<ClipVertex, 3>& tri, const QImage& texture, QImage& target, std::vector<float>& zBuffer)
+int computeFaceShade256(const QMatrix4x4& modelMatrix, const QVector4D& p0, const QVector4D& p1, const QVector4D& p2)
+{
+    const QVector3D w0 = (modelMatrix * p0).toVector3DAffine();
+    const QVector3D w1 = (modelMatrix * p1).toVector3DAffine();
+    const QVector3D w2 = (modelMatrix * p2).toVector3DAffine();
+    QVector3D normal = QVector3D::crossProduct(w1 - w0, w2 - w0);
+    if (normal.lengthSquared() < 1e-8f) {
+        return 256;
+    }
+    normal.normalize();
+    static const QVector3D lightDir = QVector3D(0.25f, 0.75f, 0.60f).normalized();
+    const float ndotl = QVector3D::dotProduct(normal, lightDir);
+    const float shade = 0.84f + 0.16f * (0.5f + 0.5f * ndotl);
+    return std::clamp(static_cast<int>(std::lround(shade * 256.0f)), 0, 256);
+}
+
+void rasterizeTriangle(const std::array<ClipVertex, 3>& tri,
+                       const QImage& texture,
+                       QImage& target,
+                       std::vector<float>& zBuffer,
+                       int shade256)
 {
     const int width = target.width();
     const int height = target.height();
@@ -233,22 +253,36 @@ void rasterizeTriangle(const std::array<ClipVertex, 3>& tri, const QImage& textu
                 continue;
             }
 
-            zBuffer[idx] = z;
             if (sa == 255) {
-                dstRow[x] = src;
+                zBuffer[idx] = z;
+                if (shade256 >= 256) {
+                    dstRow[x] = src;
+                } else {
+                    const int r = (qRed(src) * shade256) >> 8;
+                    const int g = (qGreen(src) * shade256) >> 8;
+                    const int b = (qBlue(src) * shade256) >> 8;
+                    dstRow[x] = qRgba(r, g, b, 255);
+                }
             } else {
                 const QRgb dst = dstRow[x];
                 const int invA = 255 - sa;
-                const int r = (qRed(src) * sa + qRed(dst) * invA) / 255;
-                const int g = (qGreen(src) * sa + qGreen(dst) * invA) / 255;
-                const int b = (qBlue(src) * sa + qBlue(dst) * invA) / 255;
+                const int sr = (qRed(src) * shade256) >> 8;
+                const int sg = (qGreen(src) * shade256) >> 8;
+                const int sb = (qBlue(src) * shade256) >> 8;
+                const int r = (sr * sa + qRed(dst) * invA) / 255;
+                const int g = (sg * sa + qGreen(dst) * invA) / 255;
+                const int b = (sb * sa + qBlue(dst) * invA) / 255;
                 dstRow[x] = qRgba(r, g, b, 255);
             }
         }
     }
 }
 
-void clipAndRasterize(const std::array<ClipVertex, 3>& tri, const QImage& texture, QImage& target, std::vector<float>& zBuffer)
+void clipAndRasterize(const std::array<ClipVertex, 3>& tri,
+                      const QImage& texture,
+                      QImage& target,
+                      std::vector<float>& zBuffer,
+                      int shade256)
 {
     constexpr float nearW = 0.25f;
     std::array<ClipVertex, 4> clipped{};
@@ -273,7 +307,7 @@ void clipAndRasterize(const std::array<ClipVertex, 3>& tri, const QImage& textur
     }
 
     for (int i = 1; i + 1 < count; ++i) {
-        rasterizeTriangle({ clipped[0], clipped[i], clipped[i + 1] }, texture, target, zBuffer);
+        rasterizeTriangle({ clipped[0], clipped[i], clipped[i + 1] }, texture, target, zBuffer, shade256);
     }
 }
 }  // namespace
@@ -302,8 +336,10 @@ void BoxGeometry::rasterize(const QMatrix4x4& vpMatrix, const QImage& texture, Q
         const ClipVertex v2{ mvp * m_vertices[base + 2].position, m_vertices[base + 2].texCoord };
         const ClipVertex v3{ mvp * m_vertices[base + 3].position, m_vertices[base + 3].texCoord };
 
-        clipAndRasterize({ v0, v1, v2 }, texture, target, zBuffer);
-        clipAndRasterize({ v2, v1, v3 }, texture, target, zBuffer);
+        const int shade256 = computeFaceShade256(
+            m_matrix, m_vertices[base].position, m_vertices[base + 1].position, m_vertices[base + 2].position);
+        clipAndRasterize({ v0, v1, v2 }, texture, target, zBuffer, shade256);
+        clipAndRasterize({ v2, v1, v3 }, texture, target, zBuffer, shade256);
     }
 }
 

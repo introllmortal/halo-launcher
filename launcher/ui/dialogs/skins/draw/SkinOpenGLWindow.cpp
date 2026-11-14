@@ -132,6 +132,16 @@ void SkinOpenGLWindow::mouseReleaseEvent([[maybe_unused]] QMouseEvent* e)
     m_isMousePressed = false;
 }
 
+void SkinOpenGLWindow::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    const bool rearView = (event->button() == Qt::RightButton) || (event->modifiers() & Qt::ShiftModifier);
+    m_yaw = rearView ? 270.0f : 90.0f;
+    m_pitch = 0.0f;
+    m_distance = 48.0f;
+    m_isMousePressed = false;
+    update();
+}
+
 void SkinOpenGLWindow::renderBackground(QImage& target) const
 {
     const int width = target.width();
@@ -173,8 +183,11 @@ void SkinOpenGLWindow::paintEvent([[maybe_unused]] QPaintEvent* event)
         m_elytraDirty = false;
     }
 
-    QImage frame(pixelW, pixelH, QImage::Format_ARGB32);
-    renderBackground(frame);
+    if (m_frameBuffer.size() != QSize(pixelW, pixelH) || m_frameBuffer.format() != QImage::Format_ARGB32) {
+        m_frameBuffer = QImage(pixelW, pixelH, QImage::Format_ARGB32);
+    }
+    m_frameBuffer.setDevicePixelRatio(1.0);
+    renderBackground(m_frameBuffer);
 
     m_zBuffer.assign(static_cast<size_t>(pixelW) * static_cast<size_t>(pixelH), 2.0f);
 
@@ -191,11 +204,11 @@ void SkinOpenGLWindow::paintEvent([[maybe_unused]] QPaintEvent* event)
                     m_distance * qCos(pitchRad) * qSin(yawRad)),
                 QVector3D(0.0f, -8.0f, 0.0f), QVector3D(0.0f, 1.0f, 0.0f));
 
-    m_scene->draw(projection * view, frame, m_zBuffer);
+    m_scene->draw(projection * view, m_frameBuffer, m_zBuffer);
 
-    frame.setDevicePixelRatio(dpr);
+    m_frameBuffer.setDevicePixelRatio(dpr);
     QPainter painter(this);
-    painter.drawImage(0, 0, frame);
+    painter.drawImage(0, 0, m_frameBuffer);
 }
 
 void SkinOpenGLWindow::updateScene(SkinModel* skin)
@@ -242,9 +255,4 @@ void SkinOpenGLWindow::setElytraVisible(bool visible)
         m_elytraDirty = false;
     }
     update();
-}
-
-bool SkinOpenGLWindow::hasOpenGL()
-{
-    return true;
 }

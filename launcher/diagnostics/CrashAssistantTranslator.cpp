@@ -242,15 +242,15 @@ CrashAssistantTranslator::CrashAssistantTranslator(QObject* parent)
 
 bool CrashAssistantTranslator::isRussianLanguage()
 {
-    if (APPLICATION) {
-        if (APPLICATION->translations()) {
-            QString lang = APPLICATION->translations()->selectedLanguage();
+    if (auto* app = qobject_cast<Application*>(QCoreApplication::instance())) {
+        if (app->translations()) {
+            QString lang = app->translations()->selectedLanguage();
             if (!lang.isEmpty()) {
                 return lang.startsWith("ru", Qt::CaseInsensitive);
             }
         }
-        if (APPLICATION->settings()) {
-            QString lang = APPLICATION->settings()->get("Language").toString();
+        if (app->settings()) {
+            QString lang = app->settings()->get("Language").toString();
             if (!lang.isEmpty()) {
                 return lang.startsWith("ru", Qt::CaseInsensitive);
             }

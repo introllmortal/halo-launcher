@@ -1,7 +1,7 @@
-# Prism Launcher Program Info
+# Halo Launcher Program Info
 
-This is Prism Launcher's program info which contains information about:
+This directory contains packaging metadata and branding assets for **Halo Launcher**:
 
-- Application name and logo (and branding in general)
-- Various URLs and API endpoints
-- Desktop file
+- Application icons (`halolauncher.ico`, `halolauncher.icns`, `HaloLauncher.icon`, `io.github.introllmortal.HaloLauncher*.svg/.png`)
+- Windows resource, manifest, and NSIS installer templates (`halolauncher.rc.in`, `halolauncher.manifest.in`, `win_install.nsi.in`)
+- Linux Desktop, MIME, AppStream, and manual page templates (`io.github.introllmortal.HaloLauncher.*`, `halolauncher.6.scd.in`)

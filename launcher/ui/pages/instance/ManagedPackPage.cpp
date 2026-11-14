@@ -860,6 +860,7 @@ void HaloManagedPackPage::executeDeltaSync(const PackVersion& version)
     }
 
     delete deltaTask;
+    m_inst->reloadSettings();
 
     CustomMessageBox::selectable(
         this, tr("Update Successful"),

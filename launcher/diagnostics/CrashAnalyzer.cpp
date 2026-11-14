@@ -409,7 +409,7 @@ DiagnosisResult CrashAnalyzer::detectModConflict(const QString& fullText, const 
 
     // 3. Check Mixin application and transformer errors
     static const QRegularExpression mixinPattern(
-        R"(Critical\s+injection\s+failure:\s*Callback\s*(\S+)\s+in\s+(\S+)|MixinApplyError:\s*Mixin\s+\[([^\]]+)\]\s+from\s+phase\s+[^\s]+\s+in\s+config\s+\[([^\]]+)\]|merged\s+from\s+(\S+\.mixins?\.json)|MixinTransformerError:\s*An\s+unexpected\s+critical\s+error\s+was\s+encountered\s+in\s+(\S+)|Error\s+initialising\s+mixin\s+config\s+([^\s,]+)|ClassMetadataNotFoundException:\s*(\S+))",
+        R"(Critical\s+injection\s+failure:[^\r\n]*?\s+in\s+([^\s:]+)|MixinApplyError:\s*Mixin\s+\[([^\]]+)\]\s+from\s+phase\s+[^\s]+\s+in\s+config\s+\[([^\]]+)\]|merged\s+from\s+(\S+\.mixins?\.json)|MixinTransformerError:\s*An\s+unexpected\s+critical\s+error\s+was\s+encountered\s+in\s+(\S+)|Error\s+initialising\s+mixin\s+config\s+([^\s,]+)|ClassMetadataNotFoundException:\s*(\S+))",
         QRegularExpression::CaseInsensitiveOption
     );
     auto mixinMatch = mixinPattern.match(fullText);
@@ -747,9 +747,17 @@ QString CrashAnalyzer::findModPathByName(BaseInstance* instance, const QString& 
     if (!instance || nameOrModId.isEmpty()) return QString();
 
     QString cleanQuery = nameOrModId;
-    int mixinIdx = cleanQuery.indexOf(".mixins", 0, Qt::CaseInsensitive);
+    if (cleanQuery.startsWith("mixins.", Qt::CaseInsensitive)) {
+        cleanQuery = cleanQuery.mid(7);
+    } else if (cleanQuery.startsWith("mixin.", Qt::CaseInsensitive)) {
+        cleanQuery = cleanQuery.mid(6);
+    }
+    int mixinIdx = cleanQuery.indexOf(".mixin", 0, Qt::CaseInsensitive);
     if (mixinIdx > 0) {
         cleanQuery = cleanQuery.left(mixinIdx).trimmed();
+    }
+    if (cleanQuery.endsWith(".json", Qt::CaseInsensitive)) {
+        cleanQuery.chop(5);
     }
     int colonIdx = cleanQuery.indexOf(':');
     if (colonIdx > 0) {

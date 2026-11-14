@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
-  - name: PineconeMC Discord Server
-    url: https://discord.gg/5kcBCvnbTp
-    about: Please ask for support here before opening an issue.
+  - name: Releases & Downloads
+    url: https://github.com/introllmortal/halo-launcher/releases
+    about: Check whether the issue is already fixed in the latest Halo Launcher release.

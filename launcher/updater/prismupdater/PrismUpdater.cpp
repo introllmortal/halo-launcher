@@ -83,7 +83,7 @@ PrismUpdaterApp::PrismUpdaterApp(int& argc, char** argv) : QApplication(argc, ar
 
     // Command line parsing
     QCommandLineParser parser;
-    parser.setApplicationDescription(QObject::tr("An auto-updater for Prism Launcher"));
+    parser.setApplicationDescription(QObject::tr("An auto-updater for %1").arg(BuildConfig.LAUNCHER_DISPLAYNAME));
 
     parser.addOptions(
         { { { "d", "dir" }, tr("Use a custom path as application root (use '.' for current directory)."), tr("directory") },
@@ -447,8 +447,10 @@ void PrismUpdaterApp::run()
     }
 
     if (m_isFlatpak) {
-        showFatalErrorMessage(tr("Updating flatpack not supported"), tr("Actions outside of checking if an update is available are not "
-                                                                        "supported when running the flatpak version of Prism Launcher."));
+        showFatalErrorMessage(tr("Updating flatpack not supported"),
+                              tr("Actions outside of checking if an update is available are not "
+                                 "supported when running the flatpak version of %1.")
+                                  .arg(BuildConfig.LAUNCHER_DISPLAYNAME));
         return;
     }
     if (m_isAppimage) {
@@ -866,14 +868,15 @@ void PrismUpdaterApp::performInstall(QFileInfo file)
                "\n"
                "This likely means that a previous update attempt failed. Please ensure your installation is in working order before "
                "proceeding.\n"
-               "Check the Prism Launcher updater log at: \n"
+               "Check the %8 updater log at: \n"
                "%7\n"
                "for details on the last update attempt.\n"
                "\n"
                "To overwrite this lock and proceed with this update anyway, select \"Ignore\" below.")
                 .arg(update_lock_path)
                 .arg(timestamp.toString(Qt::ISODate), from, to, target, data_path)
-                .arg(m_updateLogPath);
+                .arg(m_updateLogPath)
+                .arg(BuildConfig.LAUNCHER_DISPLAYNAME);
         QMessageBox msgBox;
         msgBox.setText(msg);
         msgBox.setInformativeText(infoMsg);
@@ -971,13 +974,13 @@ void PrismUpdaterApp::backupAppDir()
     if (file_list.isEmpty()) {
         // best guess
         if (BuildConfig.BUILD_ARTIFACT.toLower().contains("linux")) {
-            file_list.append({ "ElyPrismLauncher", "bin", "share", "lib" });
+            file_list.append({ BuildConfig.LAUNCHER_NAME, "bin", "share", "lib" });
         } else {  // windows by process of elimination
             file_list.append({
                 "jars",
-                "elyprismlauncher.exe",
-                "elyprismlauncher_filelink.exe",
-                "elyprismlauncher_updater.exe",
+                BuildConfig.LAUNCHER_APP_BINARY_NAME + ".exe",
+                BuildConfig.LAUNCHER_APP_BINARY_NAME + "_filelink.exe",
+                BuildConfig.LAUNCHER_APP_BINARY_NAME + "_updater.exe",
                 "qtlogging.ini",
                 "imageformats",
                 "iconengines",

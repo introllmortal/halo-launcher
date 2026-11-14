@@ -60,14 +60,7 @@ SkinManageDialog::SkinManageDialog(QWidget* parent, MinecraftAccountPtr acct)
 {
     m_ui->setupUi(this);
 
-    if (SkinOpenGLWindow::hasOpenGL()) {
-        m_skinPreview = new SkinOpenGLWindow(this, palette().color(QPalette::Normal, QPalette::Base), this);
-        connect(m_skinPreview, &SkinOpenGLWindow::renderFailed, this, &SkinManageDialog::fallbackTo2DPreview, Qt::QueuedConnection);
-    } else {
-        m_skinPreviewLabel = new QLabel(this);
-        m_skinPreviewLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        m_skinPreviewLabel->setAlignment(Qt::AlignCenter);
-    }
+    m_skinPreview = new SkinOpenGLWindow(this, palette().color(QPalette::Normal, QPalette::Base), this);
 
     setWindowModality(Qt::WindowModal);
 
@@ -102,9 +95,7 @@ SkinManageDialog::SkinManageDialog(QWidget* parent, MinecraftAccountPtr acct)
     connect(contentsWidget->selectionModel(), &QItemSelectionModel::selectionChanged, this, &SkinManageDialog::selectionChanged);
     connect(m_ui->listView, &QListView::customContextMenuRequested, this, &SkinManageDialog::show_context_menu);
     connect(m_ui->elytraCB, &QCheckBox::stateChanged, this, [this]() {
-        if (m_skinPreview) {
-            m_skinPreview->setElytraVisible(m_ui->elytraCB->isChecked());
-        }
+        m_skinPreview->setElytraVisible(m_ui->elytraCB->isChecked());
         on_capeCombo_currentIndexChanged(0);
     });
 
@@ -124,11 +115,7 @@ SkinManageDialog::SkinManageDialog(QWidget* parent, MinecraftAccountPtr acct)
     m_ui->buttonBox->button(QDialogButtonBox::Cancel)->setText(tr("Cancel"));
     m_ui->buttonBox->button(QDialogButtonBox::Ok)->setText(tr("OK"));
 
-    if (m_skinPreview) {
-        m_ui->skinLayout->insertWidget(0, m_skinPreview);
-    } else {
-        m_ui->skinLayout->insertWidget(0, m_skinPreviewLabel);
-    }
+    m_ui->skinLayout->insertWidget(0, m_skinPreview);
 }
 
 SkinManageDialog::~SkinManageDialog()
@@ -155,12 +142,7 @@ void SkinManageDialog::selectionChanged(QItemSelection selected, [[maybe_unused]
     if (!skin)
         return;
 
-    if (m_skinPreview) {
-        m_skinPreview->updateScene(skin);
-    } else {
-        m_skinPreviewLabel->setPixmap(
-            QPixmap::fromImage(skin->getPreview()).scaled(m_skinPreviewLabel->size(), Qt::KeepAspectRatio, Qt::FastTransformation));
-    }
+    m_skinPreview->updateScene(skin);
     m_ui->capeCombo->setCurrentIndex(m_capesIdx.value(skin->getCapeId()));
     m_ui->steveBtn->setChecked(skin->getModel() == SkinModel::CLASSIC);
     m_ui->alexBtn->setChecked(skin->getModel() == SkinModel::SLIM);
@@ -273,17 +255,10 @@ void SkinManageDialog::on_capeCombo_currentIndexChanged(int index)
     } else {
         m_ui->capeImage->clear();
     }
-    if (m_skinPreview) {
-        m_skinPreview->updateCape(cape);
-    }
+    m_skinPreview->updateCape(cape);
     if (auto skin = getSelectedSkin(); skin) {
         skin->setCapeId(id.toString());
-        if (m_skinPreview) {
-            m_skinPreview->updateScene(skin);
-        } else {
-            m_skinPreviewLabel->setPixmap(
-                QPixmap::fromImage(skin->getPreview()).scaled(m_skinPreviewLabel->size(), Qt::KeepAspectRatio, Qt::FastTransformation));
-        }
+        m_skinPreview->updateScene(skin);
     }
 }
 
@@ -291,12 +266,7 @@ void SkinManageDialog::on_steveBtn_toggled(bool checked)
 {
     if (auto skin = getSelectedSkin(); skin) {
         skin->setModel(checked ? SkinModel::CLASSIC : SkinModel::SLIM);
-        if (m_skinPreview) {
-            m_skinPreview->updateScene(skin);
-        } else {
-            m_skinPreviewLabel->setPixmap(
-                QPixmap::fromImage(skin->getPreview()).scaled(m_skinPreviewLabel->size(), Qt::KeepAspectRatio, Qt::FastTransformation));
-        }
+        m_skinPreview->updateScene(skin);
     }
 }
 
@@ -583,23 +553,16 @@ void SkinManageDialog::resizeEvent(QResizeEvent* event)
     } else {
         m_ui->capeImage->clear();
     }
-
-    if (auto skin = getSelectedSkin(); skin && !m_skinPreview) {
-        m_skinPreviewLabel->setPixmap(
-            QPixmap::fromImage(skin->getPreview()).scaled(m_skinPreviewLabel->size(), Qt::KeepAspectRatio, Qt::FastTransformation));
-    }
 }
 
 void SkinManageDialog::showEvent(QShowEvent* event)
 {
     QWidget::showEvent(event);
     if (auto skin = getSelectedSkin()) {
-        if (m_skinPreview) {
-            m_skinPreview->updateScene(skin);
-            auto id = m_ui->capeCombo->currentData();
-            auto cape = m_capes.value(id.toString(), {});
-            m_skinPreview->updateCape(cape);
-        }
+        m_skinPreview->updateScene(skin);
+        auto id = m_ui->capeCombo->currentData();
+        auto cape = m_capes.value(id.toString(), {});
+        m_skinPreview->updateCape(cape);
     }
 }
 
@@ -609,29 +572,6 @@ SkinModel* SkinManageDialog::getSelectedSkin()
         return skin;
     }
     return nullptr;
-}
-
-void SkinManageDialog::fallbackTo2DPreview()
-{
-    if (!m_skinPreview) {
-        return;
-    }
-    auto* failedPreview = m_skinPreview;
-    m_skinPreview = nullptr;
-    m_ui->skinLayout->removeWidget(failedPreview);
-    failedPreview->hide();
-    failedPreview->deleteLater();
-
-    if (!m_skinPreviewLabel) {
-        m_skinPreviewLabel = new QLabel(this);
-        m_skinPreviewLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        m_skinPreviewLabel->setAlignment(Qt::AlignCenter);
-    }
-    m_ui->skinLayout->insertWidget(0, m_skinPreviewLabel);
-    if (auto skin = getSelectedSkin()) {
-        const QSize targetSize = m_skinPreviewLabel->size().isEmpty() ? QSize(120, 160) : m_skinPreviewLabel->size();
-        m_skinPreviewLabel->setPixmap(QPixmap::fromImage(skin->getPreview()).scaled(targetSize, Qt::KeepAspectRatio, Qt::FastTransformation));
-    }
 }
 
 QHash<QString, QImage> SkinManageDialog::capes()

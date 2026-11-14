@@ -897,6 +897,8 @@ SET(LAUNCHER_SOURCES
     ui/themes/CustomTheme.h
     ui/themes/DarkTheme.cpp
     ui/themes/DarkTheme.h
+    ui/themes/HaloTheme.cpp
+    ui/themes/HaloTheme.h
     ui/themes/ITheme.cpp
     ui/themes/ITheme.h
     ui/themes/HintOverrideProxyStyle.cpp
@@ -1183,6 +1185,10 @@ SET(LAUNCHER_SOURCES
     ui/widgets/ProgressWidget.cpp
     ui/widgets/WideBar.h
     ui/widgets/WideBar.cpp
+    ui/widgets/LauncherSidebar.h
+    ui/widgets/LauncherSidebar.cpp
+    ui/widgets/InstanceInspector.h
+    ui/widgets/InstanceInspector.cpp
     ui/widgets/AppearanceWidget.h
     ui/widgets/AppearanceWidget.cpp
     ui/widgets/MinecraftSettingsWidget.h
@@ -1251,7 +1257,6 @@ qt_add_resources(LAUNCHER_RESOURCES
     resources/flat/flat.qrc
     resources/flat_white/flat_white.qrc
     resources/documents/documents.qrc
-    resources/shaders/shaders.qrc
     "${CMAKE_CURRENT_BINARY_DIR}/../${Launcher_Branding_LogoQRC}"
 )
 
@@ -1329,7 +1334,6 @@ target_link_libraries(Launcher_logic
     Qt${QT_VERSION_MAJOR}::Gui
     Qt${QT_VERSION_MAJOR}::Widgets
     Qt${QT_VERSION_MAJOR}::NetworkAuth
-    Qt${QT_VERSION_MAJOR}::OpenGL
     ${Launcher_QT_DBUS}
     ${Launcher_QT_LIBS}
 )

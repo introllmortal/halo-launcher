@@ -48,6 +48,11 @@ class DeltaSyncTask : public Task {
 
     bool abort() override;
 
+    static bool isPathSafe(const QString& rawPath);
+    static QList<DeltaFileItem> parseManifestItems(const QJsonObject& manifest);
+    static bool isLocalFileUpToDate(const QString& targetPath, const DeltaFileItem& item);
+    static int filterUnchangedUpdates(const QString& gameRoot, QList<DeltaFileItem>& items);
+
    protected:
     void executeTask() override;
 

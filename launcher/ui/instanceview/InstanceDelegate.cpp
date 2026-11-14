@@ -34,310 +34,258 @@
  */
 
 #include "InstanceDelegate.h"
+
 #include <QApplication>
-#include <QDebug>
+#include <QIcon>
+#include <QKeyEvent>
 #include <QPainter>
+#include <QPainterPath>
+#include <QTextEdit>
 #include <QTextLayout>
 #include <QTextOption>
 #include <QtMath>
 
-#include <QIcon>
-#include <QTextEdit>
+#include "Application.h"
 #include "BaseInstance.h"
 #include "InstanceList.h"
 #include "InstanceView.h"
+#include "MMCTime.h"
+#include "translations/TranslationsModel.h"
 
-// Origin: Qt
-static void viewItemTextLayout(QTextLayout& textLayout, int lineWidth, qreal& height, qreal& widthUsed)
+namespace {
+constexpr int kCardWidth = 168;
+constexpr int kCardHeight = 152;
+constexpr int kIconSize = 56;
+constexpr qreal kCardRadius = 10.0;
+
+void viewItemTextLayout(QTextLayout& textLayout, int lineWidth, int maxLines, qreal& height, qreal& widthUsed)
 {
     height = 0;
     widthUsed = 0;
     textLayout.beginLayout();
-    QString str = textLayout.text();
-    while (true) {
+    int lineIndex = 0;
+    while (lineIndex < maxLines) {
         QTextLine line = textLayout.createLine();
-        if (!line.isValid())
+        if (!line.isValid() || line.textLength() == 0) {
             break;
-        if (line.textLength() == 0)
-            break;
+        }
         line.setLineWidth(lineWidth);
         line.setPosition(QPointF(0, height));
         height += line.height();
         widthUsed = qMax(widthUsed, line.naturalTextWidth());
+        ++lineIndex;
     }
     textLayout.endLayout();
 }
 
-ListViewDelegate::ListViewDelegate(QObject* parent) : QStyledItemDelegate(parent) {}
-
-void drawSelectionRect(QPainter* painter, const QStyleOptionViewItem& option, const QRect& rect)
+void drawStatusPills(QPainter* painter, const QRectF& cardRect, BaseInstance* instance)
 {
-    if ((option.state & QStyle::State_Selected))
-        painter->fillRect(rect, option.palette.brush(QPalette::Highlight));
-    else {
-        QColor backgroundColor = option.palette.color(QPalette::Window);
-        backgroundColor.setAlpha(160);
-        painter->fillRect(rect, QBrush(backgroundColor));
-    }
-}
-
-void drawFocusRect(QPainter* painter, const QStyleOptionViewItem& option, const QRect& rect)
-{
-    if (!(option.state & QStyle::State_HasFocus))
-        return;
-    QStyleOptionFocusRect opt;
-    opt.direction = option.direction;
-    opt.fontMetrics = option.fontMetrics;
-    opt.palette = option.palette;
-    opt.rect = rect;
-    // opt.state           = option.state | QStyle::State_KeyboardFocusChange |
-    // QStyle::State_Item;
-    auto col = option.state & QStyle::State_Selected ? QPalette::Highlight : QPalette::Base;
-    opt.backgroundColor = option.palette.color(col);
-    // Apparently some widget styles expect this hint to not be set
-    painter->setRenderHint(QPainter::Antialiasing, false);
-
-    QStyle* style = option.widget ? option.widget->style() : QApplication::style();
-
-    style->drawPrimitive(QStyle::PE_FrameFocusRect, &opt, painter, option.widget);
-
-    painter->setRenderHint(QPainter::Antialiasing);
-}
-
-// TODO this can be made a lot prettier
-void drawProgressOverlay(QPainter* painter, const QStyleOptionViewItem& option, const int value, const int maximum)
-{
-    if (maximum == 0 || value == maximum) {
+    if (!instance) {
         return;
     }
 
-    painter->save();
-
-    qreal percent = (qreal)value / (qreal)maximum;
-    QColor color = option.palette.color(QPalette::Dark);
-    color.setAlphaF(0.70f);
-    painter->setBrush(color);
-    painter->setPen(QPen(QBrush(), 0));
-    painter->drawPie(option.rect, 90 * 16, -percent * 360 * 16);
-
-    painter->restore();
-}
-
-void drawBadges(QPainter* painter, const QStyleOptionViewItem& option, BaseInstance* instance, QIcon::Mode mode, QIcon::State state)
-{
-    QList<QString> pixmaps;
+    QList<QColor> dotColors;
     if (instance->isRunning()) {
-        pixmaps.append("status-running");
+        dotColors.append(QColor(27, 217, 106));
     } else if (instance->hasCrashed() || instance->hasVersionBroken()) {
-        pixmaps.append("status-bad");
+        dotColors.append(QColor(239, 68, 68));
     }
     if (instance->hasUpdateAvailable()) {
-        pixmaps.append("checkupdate");
+        dotColors.append(QColor(14, 165, 233));
     }
 
-    static const int itemSide = 24;
-    static const int spacing = 1;
-    const int itemsPerRow = qMax(1, qFloor(double(option.rect.width() + spacing) / double(itemSide + spacing)));
-    const int rows = qCeil((double)pixmaps.size() / (double)itemsPerRow);
-    QListIterator<QString> it(pixmaps);
+    if (dotColors.isEmpty()) {
+        return;
+    }
+
     painter->save();
-    painter->translate(option.rect.topLeft());
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < itemsPerRow; ++x) {
-            if (!it.hasNext()) {
-                painter->restore();
-                return;
-            }
-            // FIXME: inject this.
-            auto icon = QIcon::fromTheme(it.next());
-            // opt.icon.paint(painter, iconbox, Qt::AlignCenter, mode, state);
-            const QPixmap pixmap;
-            // itemSide
-            QRect badgeRect(option.rect.width() - x * itemSide + qMax(x - 1, 0) * spacing - itemSide,
-                            y * itemSide + qMax(y - 1, 0) * spacing, itemSide, itemSide);
-            icon.paint(painter, badgeRect, Qt::AlignCenter, mode, state);
-        }
+    qreal x = cardRect.right() - 10.0;
+    const qreal y = cardRect.top() + 10.0;
+    for (const QColor& col : dotColors) {
+        painter->setPen(QPen(QColor(0, 0, 0, 120), 1.0));
+        painter->setBrush(col);
+        painter->drawEllipse(QRectF(x - 8.0, y, 8.0, 8.0));
+        x -= 12.0;
     }
     painter->restore();
 }
 
-static QSize viewItemTextSize(const QStyleOptionViewItem* option)
+void drawCardProgressBar(QPainter* painter, const QRectF& cardRect, const QColor& accent, int value, int maximum)
 {
-    QStyle* style = option->widget ? option->widget->style() : QApplication::style();
-    QTextOption textOption;
-    textOption.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
-    QTextLayout textLayout;
-    textLayout.setTextOption(textOption);
-    textLayout.setFont(option->font);
-    textLayout.setText(option->text);
-    const int textMargin = style->pixelMetric(QStyle::PM_FocusFrameHMargin, option, option->widget) + 1;
-    QRect bounds(0, 0, 100 - 2 * textMargin, 600);
-    qreal height = 0, widthUsed = 0;
-    viewItemTextLayout(textLayout, bounds.width(), height, widthUsed);
-    const QSize size(qCeil(widthUsed), qCeil(height));
-    return QSize(size.width() + 2 * textMargin, size.height());
+    if (maximum <= 0 || value >= maximum) {
+        return;
+    }
+    const qreal ratio = qBound<qreal>(0.0, static_cast<qreal>(value) / static_cast<qreal>(maximum), 1.0);
+    const QRectF track(cardRect.left() + 10.0, cardRect.bottom() - 8.0, cardRect.width() - 20.0, 4.0);
+
+    painter->save();
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(QColor(255, 255, 255, 32));
+    painter->drawRoundedRect(track, 2.0, 2.0);
+
+    QRectF fill = track;
+    fill.setWidth(track.width() * ratio);
+    painter->setBrush(accent);
+    painter->drawRoundedRect(fill, 2.0, 2.0);
+    painter->restore();
 }
+
+QString cardSubtitle(BaseInstance* instance, const QModelIndex& index)
+{
+    if (!instance) {
+        return {};
+    }
+    if (instance->isRunning()) {
+        return TranslationsModel::trFallback(APPLICATION ? APPLICATION->translations() : nullptr,
+                                             QObject::tr("Running"),
+                                             "Running",
+                                             QStringLiteral("Запущена"));
+    }
+    if (instance->hasVersionBroken()) {
+        return TranslationsModel::trFallback(APPLICATION ? APPLICATION->translations() : nullptr,
+                                             QObject::tr("Broken"),
+                                             "Broken",
+                                             QStringLiteral("Повреждена"));
+    }
+    if (instance->isManagedPack() && !instance->getManagedPackVersionName().isEmpty()) {
+        return instance->getManagedPackVersionName();
+    }
+    if (instance->totalTimePlayed() > 0) {
+        return Time::prettifyDuration(instance->totalTimePlayed(), APPLICATION->settings()->get("ShowGameTimeWithoutDays").toBool());
+    }
+    const QString group = index.data(InstanceViewRoles::GroupRole).toString();
+    return group;
+}
+}  // namespace
+
+ListViewDelegate::ListViewDelegate(QObject* parent) : QStyledItemDelegate(parent) {}
 
 void ListViewDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const
 {
     QStyleOptionViewItem opt = option;
     initStyleOption(&opt, index);
+
     painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
     painter->setClipRect(opt.rect);
 
-    opt.features |= QStyleOptionViewItem::WrapText;
-    opt.text = index.data().toString();
-    opt.textElideMode = Qt::ElideRight;
-    opt.displayAlignment = Qt::AlignTop | Qt::AlignHCenter;
+    const bool selected = opt.state.testFlag(QStyle::State_Selected);
+    const bool hovered = opt.state.testFlag(QStyle::State_MouseOver);
+    const bool dark = opt.palette.color(QPalette::Window).lightness() < 128;
 
-    QStyle* style = opt.widget ? opt.widget->style() : QApplication::style();
-
-    // const int iconSize =  style->pixelMetric(QStyle::PM_IconViewIconSize);
-    const int iconSize = 48;
-    QRect iconbox = opt.rect;
-    const int textMargin = style->pixelMetric(QStyle::PM_FocusFrameHMargin, 0, opt.widget) + 1;
-    QRect textRect = opt.rect;
-    QRect textHighlightRect = textRect;
-    // clip the decoration on top, remove width padding
-    textRect.adjust(textMargin, iconSize + textMargin + 5, -textMargin, 0);
-
-    textHighlightRect.adjust(0, iconSize + 5, 0, 0);
-
-    // draw background
-    {
-        // FIXME: unused
-        // QSize textSize = viewItemTextSize ( &opt );
-        drawSelectionRect(painter, opt, textHighlightRect);
-        /*
-        QPalette::ColorGroup cg;
-        QStyleOptionViewItem opt2(opt);
-
-        if ((opt.widget && opt.widget->isEnabled()) || (opt.state & QStyle::State_Enabled))
-        {
-            if (!(opt.state & QStyle::State_Active))
-                cg = QPalette::Inactive;
-            else
-                cg = QPalette::Normal;
-        }
-        else
-        {
-            cg = QPalette::Disabled;
-        }
-        */
-        /*
-        opt2.palette.setCurrentColorGroup(cg);
-
-        // fill in background, if any
-
-
-        if (opt.backgroundBrush.style() != Qt::NoBrush)
-        {
-            QPointF oldBO = painter->brushOrigin();
-            painter->setBrushOrigin(opt.rect.topLeft());
-            painter->fillRect(opt.rect, opt.backgroundBrush);
-            painter->setBrushOrigin(oldBO);
-        }
-
-        drawSelectionRect(painter, opt2, textHighlightRect);
-        */
-
-        /*
-        if (opt.showDecorationSelected)
-        {
-            drawSelectionRect(painter, opt2, opt.rect);
-            drawFocusRect(painter, opt2, opt.rect);
-            // painter->fillRect ( opt.rect, opt.palette.brush ( cg, QPalette::Highlight ) );
-        }
-        else
-        {
-
-            // if ( opt.state & QStyle::State_Selected )
-            {
-                // QRect textRect = subElementRect ( QStyle::SE_ItemViewItemText,  opt,
-                // opt.widget );
-                // painter->fillRect ( textHighlightRect, opt.palette.brush ( cg,
-                // QPalette::Highlight ) );
-                drawSelectionRect(painter, opt2, textHighlightRect);
-                drawFocusRect(painter, opt2, textHighlightRect);
-            }
-        }
-        */
+    QColor accent = opt.palette.color(QPalette::Highlight);
+    if (!accent.isValid()) {
+        accent = QColor(14, 165, 233);
     }
 
-    // icon mode and state, also used for badges
-    QIcon::Mode mode = QIcon::Normal;
-    if (!(opt.state & QStyle::State_Enabled))
-        mode = QIcon::Disabled;
-    else if (opt.state & QStyle::State_Selected)
-        mode = QIcon::Selected;
-    QIcon::State state = opt.state & QStyle::State_Open ? QIcon::On : QIcon::Off;
+    QColor bg = dark ? QColor(30, 34, 43, 224) : QColor(255, 255, 255, 228);
+    QColor border = dark ? QColor(46, 52, 66, 220) : QColor(203, 213, 225, 220);
+    qreal borderWidth = 1.0;
 
-    // draw the icon
-    {
-        iconbox.setHeight(iconSize);
-        opt.icon.paint(painter, iconbox, Qt::AlignCenter, mode, state);
+    if (hovered) {
+        bg = dark ? QColor(38, 43, 55, 238) : QColor(241, 245, 249, 242);
+        border = dark ? QColor(68, 79, 102, 235) : QColor(148, 163, 184, 235);
     }
-    // set the text colors
-    QPalette::ColorGroup cg = opt.state & QStyle::State_Enabled ? QPalette::Normal : QPalette::Disabled;
-    if (cg == QPalette::Normal && !(opt.state & QStyle::State_Active))
-        cg = QPalette::Inactive;
-    if (opt.state & QStyle::State_Selected) {
-        painter->setPen(opt.palette.color(cg, QPalette::HighlightedText));
+    if (selected) {
+        QColor tint = accent;
+        tint.setAlpha(dark ? 42 : 34);
+        bg = dark ? QColor(28, 36, 48, 242) : QColor(239, 246, 255, 245);
+        // Layer subtle accent wash over card surface
+        QPainterPath path;
+        const QRectF cardRect = QRectF(opt.rect).adjusted(1.5, 1.5, -1.5, -1.5);
+        path.addRoundedRect(cardRect, kCardRadius, kCardRadius);
+        painter->fillPath(path, bg);
+        painter->fillPath(path, tint);
+        border = accent;
+        borderWidth = 2.0;
     } else {
-        painter->setPen(opt.palette.color(cg, QPalette::Text));
+        const QRectF cardRect = QRectF(opt.rect).adjusted(1.5, 1.5, -1.5, -1.5);
+        QPainterPath path;
+        path.addRoundedRect(cardRect, kCardRadius, kCardRadius);
+        painter->fillPath(path, bg);
     }
 
-    // draw the text
+    const QRectF cardRect = QRectF(opt.rect).adjusted(1.5, 1.5, -1.5, -1.5);
+    painter->setPen(QPen(border, borderWidth));
+    painter->setBrush(Qt::NoBrush);
+    painter->drawRoundedRect(cardRect, kCardRadius, kCardRadius);
+
+    // Icon badge + icon
+    const QRect iconRect(qRound(cardRect.left() + (cardRect.width() - kIconSize) / 2.0), qRound(cardRect.top() + 16.0), kIconSize,
+                         kIconSize);
+    {
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(dark ? QColor(18, 20, 26, 150) : QColor(226, 232, 240, 140));
+        painter->drawRoundedRect(QRectF(iconRect).adjusted(-5, -5, 5, 5), 10.0, 10.0);
+        opt.icon.paint(painter, iconRect, Qt::AlignCenter, opt.state.testFlag(QStyle::State_Enabled) ? QIcon::Normal : QIcon::Disabled,
+                       QIcon::Off);
+    }
+
+    auto* instance = static_cast<BaseInstance*>(index.data(InstanceList::InstancePointerRole).value<void*>());
+    drawStatusPills(painter, cardRect, instance);
+
+    // Title
+    QFont titleFont = opt.font;
+    titleFont.setWeight(QFont::DemiBold);
+    const QRectF titleArea(cardRect.left() + 10.0, iconRect.bottom() + 10.0, cardRect.width() - 20.0, 38.0);
+    const QColor titleColor = dark ? QColor(241, 245, 249) : QColor(15, 23, 42);
+    painter->setPen(titleColor);
+    painter->setFont(titleFont);
+
     QTextOption textOption;
     textOption.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
-    textOption.setTextDirection(opt.direction);
-    textOption.setAlignment(QStyle::visualAlignment(opt.direction, opt.displayAlignment));
+    textOption.setAlignment(Qt::AlignTop | Qt::AlignHCenter);
+
+    const QString titleText = index.data(Qt::DisplayRole).toString();
+    QFontMetricsF fm(titleFont);
     QTextLayout textLayout;
     textLayout.setTextOption(textOption);
-    textLayout.setFont(opt.font);
-    textLayout.setText(opt.text);
+    textLayout.setFont(titleFont);
+    textLayout.setText(titleText);
+    qreal height = 0.0;
+    qreal widthUsed = 0.0;
+    viewItemTextLayout(textLayout, qRound(titleArea.width()), 2, height, widthUsed);
 
-    qreal width, height;
-    viewItemTextLayout(textLayout, textRect.width(), height, width);
-
-    const int lineCount = textLayout.lineCount();
-
-    const QRect layoutRect = QStyle::alignedRect(opt.direction, opt.displayAlignment, QSize(textRect.width(), int(height)), textRect);
-    const QPointF position = layoutRect.topLeft();
-    for (int i = 0; i < lineCount; ++i) {
-        const QTextLine line = textLayout.lineAt(i);
-        line.draw(painter, position);
+    const QPointF titleOrigin(titleArea.left(), titleArea.top());
+    const int drawnLines = qMin(2, textLayout.lineCount());
+    for (int i = 0; i < drawnLines; ++i) {
+        QTextLine line = textLayout.lineAt(i);
+        if (i == 1 && (line.textStart() + line.textLength()) < titleText.length()) {
+            const QString tail = fm.elidedText(titleText.mid(line.textStart()), Qt::ElideRight, titleArea.width());
+            painter->drawText(QRectF(titleArea.left(), titleArea.top() + line.y(), titleArea.width(), line.height()),
+                              Qt::AlignTop | Qt::AlignHCenter, tail);
+        } else {
+            line.draw(painter, titleOrigin);
+        }
     }
 
-    // FIXME: this really has no business of being here. Make generic.
-    auto instance = (BaseInstance*)index.data(InstanceList::InstancePointerRole).value<void*>();
-    if (instance) {
-        drawBadges(painter, opt, instance, mode, state);
+    // Subtitle
+    const QString sub = cardSubtitle(instance, index);
+    if (!sub.isEmpty()) {
+        QFont subFont = opt.font;
+        if (subFont.pointSizeF() > 7.5) {
+            subFont.setPointSizeF(subFont.pointSizeF() - 1.0);
+        }
+        painter->setFont(subFont);
+        const bool isRunning = instance && instance->isRunning();
+        const QColor subColor = isRunning ? QColor(74, 222, 128) : (dark ? QColor(148, 163, 184) : QColor(100, 116, 139));
+        painter->setPen(subColor);
+
+        const QRectF subRect(cardRect.left() + 10.0, cardRect.bottom() - 26.0, cardRect.width() - 20.0, 16.0);
+        const QString elidedSub = QFontMetricsF(subFont).elidedText(sub, Qt::ElideRight, subRect.width());
+        painter->drawText(subRect, Qt::AlignCenter, elidedSub);
     }
 
-    drawProgressOverlay(painter, opt, index.data(InstanceViewRoles::ProgressValueRole).toInt(),
+    drawCardProgressBar(painter, cardRect, accent, index.data(InstanceViewRoles::ProgressValueRole).toInt(),
                         index.data(InstanceViewRoles::ProgressMaximumRole).toInt());
 
     painter->restore();
 }
 
-QSize ListViewDelegate::sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const
+QSize ListViewDelegate::sizeHint([[maybe_unused]] const QStyleOptionViewItem& option,
+                                 [[maybe_unused]] const QModelIndex& index) const
 {
-    QStyleOptionViewItem opt = option;
-    initStyleOption(&opt, index);
-    opt.features |= QStyleOptionViewItem::WrapText;
-    opt.text = index.data().toString();
-    opt.textElideMode = Qt::ElideRight;
-    opt.displayAlignment = Qt::AlignTop | Qt::AlignHCenter;
-
-    QStyle* style = opt.widget ? opt.widget->style() : QApplication::style();
-    const int textMargin = style->pixelMetric(QStyle::PM_FocusFrameHMargin, &option, opt.widget) + 1;
-    int height = 48 + textMargin * 2 + 5;  // TODO: turn constants into variables
-    QSize szz = viewItemTextSize(&opt);
-    height += szz.height();
-    // FIXME: maybe the icon items could scale and keep proportions?
-    QSize sz(100, height);
-    return sz;
+    return QSize(kCardWidth, kCardHeight);
 }
 
 class NoReturnTextEdit : public QTextEdit {
@@ -373,10 +321,7 @@ void ListViewDelegate::updateEditorGeometry(QWidget* editor,
                                             const QStyleOptionViewItem& option,
                                             [[maybe_unused]] const QModelIndex& index) const
 {
-    const int iconSize = 48;
-    QRect textRect = option.rect;
-    // QStyle *style = option.widget ? option.widget->style() : QApplication::style();
-    textRect.adjust(0, iconSize + 5, 0, 0);
+    QRect textRect = option.rect.adjusted(8, kIconSize + 24, -8, -10);
     editor->setGeometry(textRect);
 }
 
@@ -399,8 +344,9 @@ void ListViewDelegate::setModelData(QWidget* editor, QAbstractItemModel* model, 
     // Prevent instance names longer than 128 chars
     text.truncate(128);
     if (text.size() != 0) {
-        emit textChanged(model->data(index).toString(), text);
+        const QString before = model->data(index).toString();
         model->setData(index, text);
+        emit textChanged(before, text);
     }
 }
 

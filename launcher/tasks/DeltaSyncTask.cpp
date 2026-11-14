@@ -20,6 +20,7 @@
 
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QDebug>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -38,6 +39,21 @@
 #include "FileSystem.h"
 #include "net/ChecksumValidator.h"
 #include "net/Download.h"
+
+static QString computeFileSha1Hex(const QString& filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+
+    QCryptographicHash hash(QCryptographicHash::Sha1);
+    if (!hash.addData(&file)) {
+        return {};
+    }
+
+    return QString::fromLatin1(hash.result().toHex());
+}
 
 static bool writeEntryToArchive(struct archive* a, const QString& fullPath, const QString& relPath)
 {
@@ -103,7 +119,7 @@ bool DeltaSyncTask::abort()
     return Task::abort();
 }
 
-bool DeltaSyncTask::validatePathSecurity(const QString& rawPath) const
+bool DeltaSyncTask::isPathSafe(const QString& rawPath)
 {
     if (rawPath.isEmpty() || rawPath.startsWith('/') || rawPath.startsWith('\\') ||
         rawPath.contains("..") || rawPath.contains(':')) {
@@ -138,17 +154,22 @@ bool DeltaSyncTask::validatePathSecurity(const QString& rawPath) const
            clean.startsWith("config/", Qt::CaseInsensitive);
 }
 
-bool DeltaSyncTask::parseManifest()
+bool DeltaSyncTask::validatePathSecurity(const QString& rawPath) const
 {
-    m_items.clear();
+    return isPathSafe(rawPath);
+}
+
+QList<DeltaFileItem> DeltaSyncTask::parseManifestItems(const QJsonObject& manifest)
+{
+    QList<DeltaFileItem> items;
     QSet<QString> seen;
 
-    auto addParsed = [this, &seen](const QString& path, const QString& sha1, qint64 size,
-                                   const QString& url, DeltaFileItem::Action action) {
+    auto addParsed = [&items, &seen](const QString& path, const QString& sha1, qint64 size,
+                                     const QString& url, DeltaFileItem::Action action) {
         if (path.isEmpty()) return;
         DeltaFileItem item{path, sha1, size, url, action};
         if (seen.contains(path)) {
-            for (auto& existing : m_items) {
+            for (auto& existing : items) {
                 if (existing.path == path) {
                     existing = item;
                     return;
@@ -156,7 +177,7 @@ bool DeltaSyncTask::parseManifest()
             }
         }
         seen.insert(path);
-        m_items.append(item);
+        items.append(item);
     };
 
     auto parseObject = [&](const QJsonObject& obj, DeltaFileItem::Action defaultAction) {
@@ -171,15 +192,15 @@ bool DeltaSyncTask::parseManifest()
     };
 
     for (const auto& key : {"files", "updates"}) {
-        if (m_manifest.contains(key) && m_manifest.value(key).isArray()) {
-            for (const auto& val : m_manifest.value(key).toArray()) {
+        if (manifest.contains(key) && manifest.value(key).isArray()) {
+            for (const auto& val : manifest.value(key).toArray()) {
                 if (val.isObject()) parseObject(val.toObject(), DeltaFileItem::Action::Update);
             }
         }
     }
     for (const auto& key : {"removals", "remove"}) {
-        if (m_manifest.contains(key) && m_manifest.value(key).isArray()) {
-            for (const auto& val : m_manifest.value(key).toArray()) {
+        if (manifest.contains(key) && manifest.value(key).isArray()) {
+            for (const auto& val : manifest.value(key).toArray()) {
                 if (val.isObject()) {
                     parseObject(val.toObject(), DeltaFileItem::Action::Remove);
                 } else if (val.isString()) {
@@ -188,6 +209,54 @@ bool DeltaSyncTask::parseManifest()
             }
         }
     }
+    return items;
+}
+
+bool DeltaSyncTask::isLocalFileUpToDate(const QString& targetPath, const DeltaFileItem& item)
+{
+    if (item.action != DeltaFileItem::Action::Update || item.sha1.isEmpty()) {
+        return false;
+    }
+
+    QFileInfo fi(targetPath);
+    if (!fi.exists() || !fi.isFile()) {
+        return false;
+    }
+
+    if (item.size > 0 && fi.size() != item.size) {
+        return false;
+    }
+
+    const QString localSha1 = computeFileSha1Hex(targetPath);
+    return !localSha1.isEmpty() && localSha1.compare(item.sha1, Qt::CaseInsensitive) == 0;
+}
+
+int DeltaSyncTask::filterUnchangedUpdates(const QString& gameRoot, QList<DeltaFileItem>& items)
+{
+    if (gameRoot.isEmpty()) {
+        return 0;
+    }
+
+    int skipped = 0;
+    QList<DeltaFileItem> filtered;
+    filtered.reserve(items.size());
+    for (const auto& item : items) {
+        if (item.action == DeltaFileItem::Action::Update) {
+            const QString targetPath = FS::PathCombine(gameRoot, item.path);
+            if (isLocalFileUpToDate(targetPath, item)) {
+                ++skipped;
+                continue;
+            }
+        }
+        filtered.append(item);
+    }
+    items = std::move(filtered);
+    return skipped;
+}
+
+bool DeltaSyncTask::parseManifest()
+{
+    m_items = parseManifestItems(m_manifest);
     return true;
 }
 
@@ -353,21 +422,13 @@ bool DeltaSyncTask::validateDownloadedFiles()
         }
 
         if (!item.sha1.isEmpty()) {
-            QFile file(stagedPath);
-            if (!file.open(QIODevice::ReadOnly)) {
-                cleanupTemporaryDirs();
-                emitFailed(tr("Validation failed: Cannot open '%1' for hash verification. Please use full archive import.").arg(item.path));
-                return false;
-            }
-
-            QCryptographicHash hash(QCryptographicHash::Sha1);
-            if (!hash.addData(&file)) {
+            const QString actualSha1 = computeFileSha1Hex(stagedPath);
+            if (actualSha1.isEmpty()) {
                 cleanupTemporaryDirs();
                 emitFailed(tr("Validation failed: Error computing hash for '%1'. Please use full archive import.").arg(item.path));
                 return false;
             }
 
-            QString actualSha1 = QString::fromLatin1(hash.result().toHex());
             if (actualSha1.compare(item.sha1, Qt::CaseInsensitive) != 0) {
                 cleanupTemporaryDirs();
                 emitFailed(tr("Validation failed: SHA-1 hash mismatch for '%1' (expected %2, got %3). Please use full archive import.")
@@ -433,6 +494,7 @@ bool DeltaSyncTask::executeRollbackJournalAndCommit()
         }
     }
 
+    const QString cleanGameRoot = QDir::cleanPath(QDir(gameRoot).absolutePath());
     setStatus(tr("Committing updates..."));
     for (const auto& item : m_items) {
         if (item.action == DeltaFileItem::Action::Update) {
@@ -452,6 +514,13 @@ bool DeltaSyncTask::executeRollbackJournalAndCommit()
             QString targetPath = FS::PathCombine(gameRoot, item.path);
             if (QFile::exists(targetPath)) {
                 QFile::remove(targetPath);
+            }
+            QDir parentDir = QFileInfo(targetPath).dir();
+            while (QDir::cleanPath(parentDir.absolutePath()) != cleanGameRoot && parentDir.exists() && parentDir.isEmpty()) {
+                const QString dirName = parentDir.dirName();
+                if (!parentDir.cdUp() || !parentDir.rmdir(dirName)) {
+                    break;
+                }
             }
         }
     }
@@ -496,6 +565,19 @@ void DeltaSyncTask::executeTask()
             emitFailed(tr("Security violation: Manifest attempts to modify protected system path '%1'").arg(item.path));
             return;
         }
+    }
+
+    const int skippedCount = filterUnchangedUpdates(m_instance->gameRoot(), m_items);
+    if (skippedCount > 0) {
+        qDebug() << "Delta sync skipped" << skippedCount << "up-to-date files matching local SHA-1.";
+    }
+
+    if (m_items.isEmpty()) {
+        m_instance->setManagedPackVersionID(m_targetVersion);
+        m_instance->setManagedPackVersionName(m_targetVersion);
+        m_instance->saveNow();
+        emitSucceeded();
+        return;
     }
 
     setStatus(tr("Creating pre-update backup snapshot..."));
