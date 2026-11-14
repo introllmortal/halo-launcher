@@ -63,7 +63,5 @@ flatbuild
 # Snap
 *.snap
 
-# Research / Temporary mod dumps
-mods_research/
-scratch/
+# Local modpack output
 dist_modpack/
