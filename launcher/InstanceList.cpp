@@ -579,7 +579,9 @@ void InstanceList::add(std::vector<std::unique_ptr<BaseInstance>>& t)
     beginInsertRows(QModelIndex(), count(), static_cast<int>(count() + t.size() - 1));
     for (auto& ptr : t) {
         m_instances.push_back(std::move(ptr));
-        connect(m_instances.back().get(), &BaseInstance::propertiesChanged, this, &InstanceList::propertiesChanged);
+        auto* raw = m_instances.back().get();
+        connect(raw, &BaseInstance::propertiesChanged, this, &InstanceList::propertiesChanged);
+        connect(raw, &BaseInstance::runningStatusChanged, this, [this, raw](bool) { propertiesChanged(raw); });
     }
     endInsertRows();
 }

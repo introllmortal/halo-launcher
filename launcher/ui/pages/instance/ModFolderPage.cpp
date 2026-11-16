@@ -49,6 +49,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QSortFilterProxyModel>
+#include <QTimer>
 #include <algorithm>
 #include <memory>
 
@@ -218,6 +219,33 @@ void ModFolderPage::downloadDialogFinished(int result)
     if (m_downloadDialog) {
         m_downloadDialog->deleteLater();
     }
+}
+
+void ModFolderPage::checkModUpdatesWhenReady()
+{
+    if (!m_model || m_pendingAutoUpdateCheck) {
+        return;
+    }
+    m_pendingAutoUpdateCheck = true;
+    if (m_model->size() > 0) {
+        QTimer::singleShot(0, this, [this]() {
+            m_pendingAutoUpdateCheck = false;
+            updateMods(false);
+        });
+        return;
+    }
+    auto conn = std::make_shared<QMetaObject::Connection>();
+    *conn = connect(m_model, &ResourceFolderModel::updateFinished, this, [this, conn]() {
+        disconnect(*conn);
+        if (m_model && m_model->size() > 0) {
+            QTimer::singleShot(0, this, [this]() {
+                m_pendingAutoUpdateCheck = false;
+                updateMods(false);
+            });
+        } else {
+            m_pendingAutoUpdateCheck = false;
+        }
+    });
 }
 
 void ModFolderPage::updateMods(bool includeDeps)

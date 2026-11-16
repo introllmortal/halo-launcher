@@ -45,6 +45,7 @@ namespace fs = std::filesystem;
 
 #include "DesktopServices.h"
 
+#include "updater/prismupdater/UpdaterArtifacts.h"
 #include "updater/prismupdater/UpdaterDialogs.h"
 
 #include "FileSystem.h"
@@ -654,64 +655,12 @@ GitHubRelease PrismUpdaterApp::selectRelease()
 
 QList<GitHubReleaseAsset> PrismUpdaterApp::validReleaseArtifacts(const GitHubRelease& release)
 {
-    QList<GitHubReleaseAsset> valid;
-
-    qDebug() << "Selecting best asset from" << release.tag_name << "for platform" << BuildConfig.BUILD_ARTIFACT
-             << "portable:" << m_isPortable;
-    if (BuildConfig.BUILD_ARTIFACT.isEmpty())
-        qWarning() << "Build platform is not set!";
-    for (auto asset : release.assets) {
-        if (asset.name.endsWith(".zsync")) {
-            qDebug() << "Rejecting zsync file" << asset.name;
-            continue;
-        }
-        if (!m_isAppimage && asset.name.toLower().endsWith("appimage")) {
-            qDebug() << "Rejecting" << asset.name << "because it is an AppImage";
-            continue;
-        } else if (m_isAppimage && !asset.name.toLower().endsWith("appimage")) {
-            qDebug() << "Rejecting" << asset.name << "because it is not an AppImage";
-            continue;
-        }
-        auto asset_name = asset.name.toLower();
-        auto [platform, platform_qt_ver] = StringUtils::splitFirst(BuildConfig.BUILD_ARTIFACT.toLower(), "-qt");
-        auto system_is_arm = QSysInfo::buildCpuArchitecture().contains("arm64");
-        auto asset_is_arm = asset_name.contains("arm64");
-        auto asset_is_archive = asset_name.endsWith(".zip") || asset_name.endsWith(".tar.gz");
-
-        bool for_platform = !platform.isEmpty() && asset_name.contains(platform);
-        if (!for_platform) {
-            qDebug() << "Rejecting" << asset.name << "because platforms do not match";
-        }
-        bool for_portable = asset_name.contains("portable");
-        if (for_platform && asset_name.contains("legacy") && !platform.contains("legacy")) {
-            qDebug() << "Rejecting" << asset.name << "because platforms do not match";
-            for_platform = false;
-        }
-        if (for_platform && ((asset_is_arm && !system_is_arm) || (!asset_is_arm && system_is_arm))) {
-            qDebug() << "Rejecting" << asset.name << "because architecture does not match";
-            for_platform = false;
-        }
-        if (for_platform && platform.contains("windows") && !m_isPortable && asset_is_archive) {
-            qDebug() << "Rejecting" << asset.name << "because it is not an installer";
-            for_platform = false;
-        }
-
-        static const QRegularExpression s_qtPattern("-qt(\\d+)");
-        auto qt_match = s_qtPattern.match(asset_name);
-        if (for_platform && qt_match.hasMatch()) {
-            if (platform_qt_ver.isEmpty() || platform_qt_ver.toInt() != qt_match.captured(1).toInt()) {
-                qDebug() << "Rejecting" << asset.name << "because it is not for the correct qt version" << platform_qt_ver.toInt() << "vs"
-                         << qt_match.captured(1).toInt();
-                for_platform = false;
-            }
-        }
-
-        if (((m_isPortable && for_portable) || (!m_isPortable && !for_portable)) && for_platform) {
-            qDebug() << "Accepting" << asset.name;
-            valid.append(asset);
-        }
-    }
-    return valid;
+    HaloUpdater::ArtifactTarget target;
+    target.buildArtifact = BuildConfig.BUILD_ARTIFACT;
+    target.cpuArchitecture = QSysInfo::buildCpuArchitecture();
+    target.isPortable = m_isPortable;
+    target.isAppimage = m_isAppimage;
+    return HaloUpdater::validReleaseArtifacts(release, target);
 }
 
 GitHubReleaseAsset PrismUpdaterApp::selectAsset(const QList<GitHubReleaseAsset>& assets)

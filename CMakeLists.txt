@@ -186,7 +186,7 @@ set(Launcher_LEGACY_FMLLIBS_BASE_URL "https://files.pineconemc.ru/fmllibs/" CACH
 
 ######## Set version numbers ########
 set(Launcher_VERSION_MAJOR 2)
-set(Launcher_VERSION_MINOR 0)
+set(Launcher_VERSION_MINOR 1)
 set(Launcher_VERSION_PATCH 0)
 
 set(Launcher_VERSION_NAME "${Launcher_VERSION_MAJOR}.${Launcher_VERSION_MINOR}.${Launcher_VERSION_PATCH}")
@@ -298,7 +298,7 @@ set(Launcher_BUILD_TIMESTAMP "${TODAY}")
 # Find the required Qt parts
 if(Launcher_QT_VERSION_MAJOR EQUAL 6)
     set(QT_VERSION_MAJOR 6)
-    find_package(Qt6 6.8 REQUIRED COMPONENTS Core CoreTools Widgets Concurrent Network Test Xml NetworkAuth)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Core CoreTools Widgets Concurrent Network Test Xml NetworkAuth LinguistTools)
     find_package(Qt6 COMPONENTS DBus)
     list(APPEND Launcher_QT_DBUS Qt6::DBus)
 else()

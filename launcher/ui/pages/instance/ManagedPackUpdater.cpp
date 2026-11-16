@@ -27,30 +27,22 @@
 #include "InstanceImportTask.h"
 #include "InstanceList.h"
 #include "InstanceTask.h"
+#include "PackSnapshot.h"
 #include "net/ApiDownload.h"
 #include "net/NetJob.h"
 #include "tasks/DeltaSyncTask.h"
-#include "translations/TranslationsModel.h"
 #include "ui/dialogs/CustomMessageBox.h"
 #include "ui/dialogs/ProgressDialog.h"
 
 namespace {
-
-QString uiLabel(const QString& translated, const char* englishLiteral, const QString& ruFallback)
-{
-    return TranslationsModel::trFallback(APPLICATION ? APPLICATION->translations() : nullptr, translated, englishLiteral, ruFallback);
-}
 
 bool warnIfInstanceRunning(BaseInstance* inst, QWidget* parent)
 {
     if (!inst || !inst->isRunning()) {
         return false;
     }
-    CustomMessageBox::selectable(parent,
-                                 uiLabel(QObject::tr("Game Running"), "Game Running", QStringLiteral("Игра запущена")),
-                                 uiLabel(QObject::tr("Minecraft is currently running. Please close the game before updating."),
-                                         "Minecraft is currently running. Please close the game before updating.",
-                                         QStringLiteral("Minecraft сейчас запущен. Закройте игру перед обновлением сборки.")),
+    CustomMessageBox::selectable(parent, QObject::tr("Game Running"),
+                                 QObject::tr("Minecraft is currently running. Please close the game before updating."),
                                  QMessageBox::Warning)
         ->exec();
     return true;
@@ -91,26 +83,29 @@ bool runImportUpdate(BaseInstance* inst,
         return false;
     }
 
+    const QPointer<BaseInstance> safeInst(inst);
+    PackSnapshot::createSnapshot(safeInst, versionName);
+
     QMap<QString, QString> extraInfo;
-    extraInfo.insert(QStringLiteral("pack_id"), inst->getManagedPackID());
+    extraInfo.insert(QStringLiteral("pack_id"), safeInst->getManagedPackID());
     extraInfo.insert(QStringLiteral("pack_version_id"), versionID);
-    extraInfo.insert(QStringLiteral("original_instance_id"), inst->id());
+    extraInfo.insert(QStringLiteral("original_instance_id"), safeInst->id());
 
     auto* extracted = new InstanceImportTask(url, parent, std::move(extraInfo));
     if (versionName.isEmpty()) {
-        extracted->setName(inst->name());
+        extracted->setName(safeInst->name());
     } else {
-        InstanceName instName(inst->getManagedPackName(), versionName);
-        QString nextName = inst->name();
-        const QString currentVersionName = inst->getManagedPackVersionName();
+        InstanceName instName(safeInst->getManagedPackName(), versionName);
+        QString nextName = safeInst->name();
+        const QString currentVersionName = safeInst->getManagedPackVersionName();
         if (!currentVersionName.isEmpty()) {
             nextName.replace(currentVersionName, versionName);
         }
         instName.setName(nextName);
         extracted->setName(instName);
     }
-    extracted->setGroup(APPLICATION->instances()->getInstanceGroup(inst->id()));
-    extracted->setIcon(inst->iconKey());
+    extracted->setGroup(APPLICATION->instances()->getInstanceGroup(safeInst->id()));
+    extracted->setIcon(safeInst->iconKey());
     extracted->setConfirmUpdate(false);
 
     unique_qobject_ptr<Task> wrappedTask(APPLICATION->instances()->wrapInstanceTask(extracted));
@@ -134,12 +129,15 @@ bool runImportUpdate(BaseInstance* inst,
     loadDialog.execWithTask(wrappedTask.get());
 
     const bool didSucceed = wrappedTask->wasSuccessful();
+    if (!safeInst) {
+        return false;
+    }
     if (didSucceed) {
-        inst->reloadSettings();
-        inst->setUpdateAvailable(false);
+        safeInst->reloadSettings();
+        safeInst->setUpdateAvailable(false);
     }
     if (showResultDialog) {
-        showUpdateOutcomeDialog(inst, didSucceed, parent);
+        showUpdateOutcomeDialog(safeInst, didSucceed, parent);
     }
     return didSucceed;
 }
@@ -150,6 +148,7 @@ bool executeHaloDeltaSync(BaseInstance* inst, const HaloPackVersion& version, QW
         return false;
     }
 
+    const QPointer<BaseInstance> safeInst(inst);
     auto offerFullFallback = [&](const QString& reason) -> bool {
         const auto res = CustomMessageBox::selectable(
                              parent, QObject::tr("Delta Update Failed"),
@@ -158,8 +157,8 @@ bool executeHaloDeltaSync(BaseInstance* inst, const HaloPackVersion& version, QW
                                  .arg(reason),
                              QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
                              ->exec();
-        if (res == QMessageBox::Yes) {
-            return runImportUpdate(inst, version.downloadUrl, version.version, version.version, parent);
+        if (res == QMessageBox::Yes && safeInst) {
+            return runImportUpdate(safeInst, version.downloadUrl, version.version, version.version, parent);
         }
         return false;
     };
@@ -174,6 +173,9 @@ bool executeHaloDeltaSync(BaseInstance* inst, const HaloPackVersion& version, QW
         fetchDlg.setSkipButton(true, QObject::tr("Abort"));
         fetchDlg.execWithTask(netJob.get());
 
+        if (!safeInst) {
+            return false;
+        }
         if (!netJob->wasSuccessful()) {
             const QString reason = netJob->failReason().isEmpty() ? QObject::tr("Failed to download delta manifest") : netJob->failReason();
             return offerFullFallback(reason);
@@ -187,7 +189,9 @@ bool executeHaloDeltaSync(BaseInstance* inst, const HaloPackVersion& version, QW
         manifest = doc.object();
     }
 
-    auto* deltaTask = new DeltaSyncTask(inst, manifest, version.version, parent);
+    PackSnapshot::createSnapshot(safeInst, version.version);
+
+    auto* deltaTask = new DeltaSyncTask(safeInst, manifest, version.version, parent);
     ProgressDialog progressDialog(parent);
     progressDialog.setSkipButton(true, QObject::tr("Abort"));
     progressDialog.execWithTask(deltaTask);
@@ -199,12 +203,15 @@ bool executeHaloDeltaSync(BaseInstance* inst, const HaloPackVersion& version, QW
             reason = deltaTask->wasAborted() ? QObject::tr("Task aborted by user") : QObject::tr("Unknown error");
         }
         delete deltaTask;
-        return offerFullFallback(reason);
+        return safeInst ? offerFullFallback(reason) : false;
     }
 
     delete deltaTask;
-    inst->reloadSettings();
-    inst->setUpdateAvailable(false);
+    if (!safeInst) {
+        return false;
+    }
+    safeInst->reloadSettings();
+    safeInst->setUpdateAvailable(false);
 
     CustomMessageBox::selectable(parent, QObject::tr("Update Successful"),
                                  QObject::tr("The instance updated to pack version %1 successfully.").arg(version.version),
@@ -227,14 +234,9 @@ bool runOneStepUpdate(BaseInstance* inst, QWidget* parent)
 
     if (inst->getManagedPackID().isEmpty()) {
         if (!customUrl.isEmpty()) {
-            const auto res = CustomMessageBox::selectable(
-                                 parent,
-                                 uiLabel(QObject::tr("Modpack Update"), "Modpack Update", QStringLiteral("Обновление модпака")),
-                                 uiLabel(QObject::tr("Update \"%1\" from configured URL?\n%2"),
-                                         "Update \"%1\" from configured URL?\n%2",
-                                         QStringLiteral("Обновить сборку «%1» из настроенного источника?\n%2"))
-                                     .arg(inst->name(), customUrl),
-                                 QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
+            const auto res = CustomMessageBox::selectable(parent, QObject::tr("Modpack Update"),
+                                                          QObject::tr("Update \"%1\" from configured URL?\n%2").arg(inst->name(), customUrl),
+                                                          QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
                                  ->exec();
             if (res == QMessageBox::Yes && guard) {
                 return runImportUpdate(guard, QUrl(customUrl), {}, {}, parent);
@@ -259,14 +261,9 @@ bool runOneStepUpdate(BaseInstance* inst, QWidget* parent)
     if (isUpToDate) {
         guard->setUpdateAvailable(false);
         const QString ver = candidate.versionName.isEmpty() ? guard->getManagedPackVersionName() : candidate.versionName;
-        CustomMessageBox::selectable(
-            parent,
-            uiLabel(QObject::tr("Up to Date"), "Up to Date", QStringLiteral("Установлена последняя версия")),
-            uiLabel(QObject::tr("\"%1\" is already on the latest version (%2)."),
-                    "\"%1\" is already on the latest version (%2).",
-                    QStringLiteral("Сборка «%1» уже обновлена до последней версии (%2)."))
-                .arg(guard->name(), ver),
-            QMessageBox::Information)
+        CustomMessageBox::selectable(parent, QObject::tr("Up to Date"),
+                                     QObject::tr("\"%1\" is already on the latest version (%2).").arg(guard->name(), ver),
+                                     QMessageBox::Information)
             ->exec();
         return false;
     }

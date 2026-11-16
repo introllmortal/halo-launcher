@@ -26,6 +26,7 @@
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QStackedWidget>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -58,6 +59,10 @@ InstanceInspector::InstanceInspector(const Actions& actions, QWidget* parent) : 
 
     m_stack = new QStackedWidget(this);
     outer->addWidget(m_stack);
+
+    m_sessionTimer = new QTimer(this);
+    m_sessionTimer->setInterval(1000);
+    connect(m_sessionTimer, &QTimer::timeout, this, &InstanceInspector::updateSessionMetrics);
 
     buildEmptyPage();
     buildDetailsPage();
@@ -140,6 +145,22 @@ void InstanceInspector::buildDetailsPage()
         m_titleLabel->setWordWrap(true);
         titleTop->addWidget(m_titleLabel, 1);
 
+        m_pinButton = new QToolButton(detailsPage);
+        m_pinButton->setObjectName(QStringLiteral("inspectorPinButton"));
+        m_pinButton->setIcon(QIcon::fromTheme(QStringLiteral("star")));
+        m_pinButton->setIconSize(QSize(14, 14));
+        m_pinButton->setFixedSize(28, 28);
+        m_pinButton->setCheckable(true);
+        m_pinButton->setCursor(Qt::PointingHandCursor);
+        m_pinButton->setFocusPolicy(Qt::NoFocus);
+        connect(m_pinButton, &QToolButton::clicked, this, [this](bool checked) {
+            if (m_instance) {
+                m_instance->setPinned(checked);
+            }
+            updatePinButtonState();
+        });
+        titleTop->addWidget(m_pinButton, 0, Qt::AlignTop);
+
         m_renameButton = new QToolButton(detailsPage);
         m_renameButton->setObjectName(QStringLiteral("inspectorActionButton"));
         m_renameButton->setIcon(QIcon::fromTheme(QStringLiteral("rename")));
@@ -197,6 +218,33 @@ void InstanceInspector::buildDetailsPage()
         layout->addWidget(m_metaCard);
     }
 
+    // Active session card (live timer, RAM readout, and quick log open)
+    {
+        m_sessionCard = new QFrame(detailsPage);
+        m_sessionCard->setObjectName(QStringLiteral("inspectorSessionCard"));
+        auto* sessionLayout = new QVBoxLayout(m_sessionCard);
+        sessionLayout->setContentsMargins(12, 9, 12, 9);
+        sessionLayout->setSpacing(6);
+
+        auto* statsRow = new QHBoxLayout();
+        statsRow->setSpacing(8);
+        m_sessionDurationLabel = new QLabel(m_sessionCard);
+        m_sessionDurationLabel->setObjectName(QStringLiteral("inspectorSessionLabel"));
+        m_sessionRamLabel = new QLabel(m_sessionCard);
+        m_sessionRamLabel->setObjectName(QStringLiteral("inspectorSessionLabel"));
+        m_sessionRamLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        statsRow->addWidget(m_sessionDurationLabel, 1);
+        statsRow->addWidget(m_sessionRamLabel, 0);
+        sessionLayout->addLayout(statsRow);
+
+        m_sessionLogButton = makePanelPushButton(QStringLiteral("log"), QStringLiteral("inspectorSessionLogButton"), nullptr, m_sessionCard);
+        connect(m_sessionLogButton, &QPushButton::clicked, this, &InstanceInspector::openLogRequested);
+        sessionLayout->addWidget(m_sessionLogButton);
+
+        m_sessionCard->hide();
+        layout->addWidget(m_sessionCard);
+    }
+
     // Play / Stop primary button
     {
         m_playButton = new QToolButton(detailsPage);
@@ -225,6 +273,16 @@ void InstanceInspector::buildDetailsPage()
     connect(m_updatePackButton, &QPushButton::clicked, this, &InstanceInspector::updatePackRequested);
     UiAnimations::installButtonHoverGlow(m_updatePackButton, 7.0, 140);
     layout->addWidget(m_updatePackButton);
+
+    m_rollbackButton =
+        makePanelPushButton(QStringLiteral("refresh"), QStringLiteral("inspectorActionButton"), nullptr, detailsPage);
+    connect(m_rollbackButton, &QPushButton::clicked, this, &InstanceInspector::rollbackSnapshotRequested);
+    layout->addWidget(m_rollbackButton);
+
+    m_checkModsButton =
+        makePanelPushButton(QStringLiteral("loadermods"), QStringLiteral("inspectorActionButton"), nullptr, detailsPage);
+    connect(m_checkModsButton, &QPushButton::clicked, this, &InstanceInspector::checkModUpdatesRequested);
+    layout->addWidget(m_checkModsButton);
 
     m_editButton = makePanelPushButton(QStringLiteral("settings"), QStringLiteral("inspectorActionButton"), m_actions.editInstance,
                                        detailsPage);

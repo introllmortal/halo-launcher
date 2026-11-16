@@ -722,12 +722,14 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
         // Language
         m_settings->registerSetting("Language", QString());
         m_settings->registerSetting("UseSystemLocale", false);
+        m_settings->registerSetting("LastSeenChangelogVersion", QString());
 
         // Console
         m_settings->registerSetting("ShowConsole", false);
         m_settings->registerSetting("AutoCloseConsole", false);
         m_settings->registerSetting("ShowConsoleOnError", true);
         m_settings->registerSetting("EnableCrashAssistant", true);
+        m_settings->registerSetting("EnableLaunchPreflight", true);
         m_settings->registerSetting("LogPrePostOutput", true);
 
         // Window Size
@@ -1038,10 +1040,11 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
 
     // load translations
     {
+        // Install CrashAssistantTranslator BEFORE TranslationsModel so Halo's .qm overlays keep LIFO priority.
+        CrashAssistantTranslator::install();
         m_translations.reset(new TranslationsModel("translations"));
         m_translations->downloadIndex();
         qInfo() << "Your language is" << m_translations->selectedLanguage();
-        CrashAssistantTranslator::install();
         qInfo() << "<> Translations loaded.";
     }
 

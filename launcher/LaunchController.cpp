@@ -63,7 +63,9 @@
 #include "ui/dialogs/ChooseOfflineNameDialog.h"
 #include "ui/dialogs/ElyLoginDialog.h"
 #include "diagnostics/CrashAnalyzer.h"
+#include "diagnostics/LaunchPreflightCheck.h"
 #include "ui/dialogs/CrashAssistantDialog.h"
+#include "ui/dialogs/LaunchPreflightDialog.h"
 #include "launch/LogModel.h"
 #include "FileSystem.h"
 #include <QDir>
@@ -395,6 +397,33 @@ void LaunchController::launchInstance()
         QMessageBox::critical(m_parentWidget, tr("Error!"), tr("Couldn't load the instance profile."));
         emitFailed(tr("Couldn't load the instance profile."));
         return;
+    }
+
+    if (m_parentWidget && APPLICATION->settings()->get("EnableLaunchPreflight").toBool()) {
+        const PreflightReport preflight = LaunchPreflightCheck::analyze(m_instance);
+        if (!m_instance) {
+            emitAborted();
+            return;
+        }
+        if (!preflight.isEmpty()) {
+            LaunchPreflightDialog preflightDlg(preflight, m_parentWidget);
+            preflightDlg.exec();
+            if (!m_instance) {
+                emitAborted();
+                return;
+            }
+            switch (preflightDlg.resultAction()) {
+                case LaunchPreflightDialog::ResultAction::Cancel:
+                    emitAborted();
+                    return;
+                case LaunchPreflightDialog::ResultAction::FixAndLaunch:
+                    LaunchPreflightCheck::applyAllFixes(m_instance, preflight);
+                    m_instance->reloadSettings();
+                    break;
+                case LaunchPreflightDialog::ResultAction::LaunchAnyway:
+                    break;
+            }
+        }
     }
 
     m_launcher = m_instance->createLaunchTask(m_session, m_targetToJoin);

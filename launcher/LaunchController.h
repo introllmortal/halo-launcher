@@ -35,6 +35,7 @@
 
 #pragma once
 #include <BaseInstance.h>
+#include <QPointer>
 #include <tools/BaseProfiler.h>
 
 #include "minecraft/auth/MinecraftAccount.h"
@@ -68,7 +69,7 @@ class LaunchController : public Task {
 
     void setAccountToUse(MinecraftAccountPtr accountToUse) { m_accountToUse = std::move(accountToUse); }
 
-    QString id() const { return m_instance->id(); }
+    QString id() const { return m_instance ? m_instance->id() : QString(); }
 
     bool abort() override;
 
@@ -93,7 +94,7 @@ class LaunchController : public Task {
     LaunchMode m_actualLaunchMode = LaunchMode::Normal;
     BaseProfilerFactory* m_profiler = nullptr;
     QString m_offlineName;
-    BaseInstance* m_instance = nullptr;
+    QPointer<BaseInstance> m_instance;
     QWidget* m_parentWidget = nullptr;
     InstanceWindow* m_console = nullptr;
     MinecraftAccountPtr m_accountToUse = nullptr;

@@ -23,7 +23,7 @@ body:
   attributes:
     label: Version of Halo Launcher
     description: Check Help -> About Halo Launcher (or the title bar).
-    placeholder: Halo Launcher 2.0.0
+    placeholder: Halo Launcher 2.1.0
   validations:
     required: true
 - type: input

@@ -525,6 +525,48 @@ QToolButton#newsPillButton:hover {
     color: #ffffff;
     border-color: #556b9c;
 }
+QWidget#instanceFilterBar {
+    background: transparent;
+}
+QPushButton#filterPillButton {
+    background-color: #161d2e;
+    color: #94a3b8;
+    border: 1px solid #2b3650;
+    border-radius: 12px;
+    padding: 3px 11px;
+    min-height: 14px;
+    font-size: 11px;
+    font-weight: 600;
+}
+QPushButton#filterPillButton:hover {
+    background-color: #1f2940;
+    color: #e2e8f0;
+    border-color: #4a5d8a;
+}
+QPushButton#filterPillButton:checked {
+    background-color: rgba(14, 165, 233, 46);
+    color: #e0f2fe;
+    border: 1px solid #38bdf8;
+}
+QToolButton#sidebarQuickLaunchButton {
+    background-color: rgba(22, 163, 74, 34);
+    color: #dcfce7;
+    border: 1px solid rgba(34, 197, 94, 105);
+    border-radius: 8px;
+    padding: 7px 10px;
+    text-align: left;
+    font-weight: 600;
+}
+QToolButton#sidebarQuickLaunchButton:hover {
+    background-color: rgba(22, 163, 74, 58);
+    color: #ffffff;
+    border-color: #4ade80;
+}
+QToolButton#sidebarQuickLaunchButton:disabled {
+    background-color: transparent;
+    color: #64748b;
+    border-color: transparent;
+}
 
 QWidget#instanceInspector {
     background-color: #121622;
@@ -553,6 +595,46 @@ QFrame#inspectorMetaCard {
     background-color: #181f30;
     border: 1px solid #2e3954;
     border-radius: 10px;
+}
+QFrame#inspectorSessionCard {
+    background-color: rgba(22, 163, 74, 24);
+    border: 1px solid rgba(34, 197, 94, 96);
+    border-radius: 10px;
+}
+QLabel#inspectorSessionLabel {
+    color: #bbf7d0;
+    font-size: 12px;
+    font-weight: 600;
+}
+QPushButton#inspectorSessionLogButton {
+    background-color: rgba(15, 23, 42, 140);
+    color: #dcfce7;
+    border: 1px solid rgba(74, 222, 128, 110);
+    border-radius: 7px;
+    padding: 4px 10px;
+    min-height: 14px;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: left;
+}
+QPushButton#inspectorSessionLogButton:hover {
+    background-color: rgba(22, 163, 74, 65);
+    color: #ffffff;
+    border-color: #4ade80;
+}
+QToolButton#inspectorPinButton {
+    background-color: #21293e;
+    border: 1px solid #384668;
+    border-radius: 7px;
+    padding: 4px;
+}
+QToolButton#inspectorPinButton:hover {
+    background-color: #2b3652;
+    border-color: #5b72a4;
+}
+QToolButton#inspectorPinButton:checked {
+    background-color: rgba(250, 204, 21, 44);
+    border: 1px solid rgba(250, 204, 21, 170);
 }
 QLabel#inspectorBadgeRunning {
     background-color: rgba(27, 217, 106, 34);

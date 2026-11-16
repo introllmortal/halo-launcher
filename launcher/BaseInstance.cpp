@@ -80,6 +80,7 @@ BaseInstance::BaseInstance(SettingsObject* globalSettings, std::unique_ptr<Setti
     m_settings->registerSetting("name", "Unnamed Instance");
     m_settings->registerSetting("iconKey", "default");
     m_settings->registerSetting("notes", "");
+    m_settings->registerSetting("Pinned", false);
 
     m_settings->registerSetting("lastLaunchTime", 0);
     m_settings->registerSetting("totalTimePlayed", 0);
@@ -392,6 +393,20 @@ void BaseInstance::setNotes(QString val)
 QString BaseInstance::notes() const
 {
     return m_settings->get("notes").toString();
+}
+
+bool BaseInstance::isPinned() const
+{
+    return m_settings->get("Pinned").toBool();
+}
+
+void BaseInstance::setPinned(bool pinned)
+{
+    if (isPinned() == pinned) {
+        return;
+    }
+    m_settings->set("Pinned", pinned);
+    emit propertiesChanged(this);
 }
 
 void BaseInstance::setIconKey(QString val)

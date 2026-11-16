@@ -32,6 +32,7 @@ class LauncherSidebar : public QWidget {
    public:
     struct Actions {
         QAction* addInstance = nullptr;
+        QAction* quickLaunch = nullptr;
         QAction* settings = nullptr;
         QAction* checkUpdate = nullptr;
         QAction* helpAction = nullptr;
@@ -47,6 +48,7 @@ class LauncherSidebar : public QWidget {
     ~LauncherSidebar() override = default;
 
     void updateAccount(const MinecraftAccountPtr& account);
+    void updateQuickLaunch(const QString& instanceName, bool canLaunch);
     void retranslateUi();
 
     QToolButton* helpButton() const { return m_helpButton; }
@@ -63,6 +65,9 @@ class LauncherSidebar : public QWidget {
 
     QToolButton* m_instancesButton = nullptr;
     QToolButton* m_addInstanceButton = nullptr;
+    QToolButton* m_quickLaunchButton = nullptr;
+    QString m_quickLaunchName;
+    bool m_canQuickLaunch = false;
     QToolButton* m_foldersButton = nullptr;
     QToolButton* m_updateButton = nullptr;
     QToolButton* m_settingsButton = nullptr;

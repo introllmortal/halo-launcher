@@ -57,6 +57,10 @@ set(CORE_SOURCES
     diagnostics/CrashAssistantTranslator.cpp
     diagnostics/GpuSanityChecker.h
     diagnostics/GpuSanityChecker.cpp
+    diagnostics/ProcessMemory.h
+    diagnostics/ProcessMemory.cpp
+    diagnostics/LaunchPreflightCheck.h
+    diagnostics/LaunchPreflightCheck.cpp
 
     # Resource downloading task
     ResourceDownloadTask.h
@@ -636,6 +640,8 @@ set(LINKEXE_SOURCES
 set(PRISMUPDATER_SOURCES
     updater/prismupdater/PrismUpdater.h
     updater/prismupdater/PrismUpdater.cpp
+    updater/prismupdater/UpdaterArtifacts.h
+    updater/prismupdater/UpdaterArtifacts.cpp
     updater/prismupdater/UpdaterDialogs.h
     updater/prismupdater/UpdaterDialogs.cpp
     updater/prismupdater/GitHubRelease.h
@@ -942,6 +948,8 @@ SET(LAUNCHER_SOURCES
     ui/pages/instance/ManagedPackPage.h
     ui/pages/instance/ManagedPackUpdater.cpp
     ui/pages/instance/ManagedPackUpdater.h
+    ui/pages/instance/PackSnapshot.cpp
+    ui/pages/instance/PackSnapshot.h
     ui/pages/instance/DataPackPage.h
     ui/pages/instance/DataPackPage.cpp
     ui/pages/instance/TexturePackPage.h
@@ -1080,6 +1088,14 @@ SET(LAUNCHER_SOURCES
     ui/dialogs/AboutDialog.h
     ui/dialogs/CrashAssistantDialog.cpp
     ui/dialogs/CrashAssistantDialog.h
+    ui/dialogs/LaunchPreflightDialog.cpp
+    ui/dialogs/LaunchPreflightDialog.h
+    ui/dialogs/ReleaseNotesDialog.cpp
+    ui/dialogs/ReleaseNotesDialog.h
+    updater/prismupdater/GitHubRelease.cpp
+    updater/prismupdater/GitHubRelease.h
+    updater/prismupdater/UpdaterArtifacts.cpp
+    updater/prismupdater/UpdaterArtifacts.h
     ui/dialogs/ProfileSelectDialog.cpp
     ui/dialogs/ProfileSelectDialog.h
     ui/dialogs/ProfileSetupDialog.cpp
@@ -1252,6 +1268,16 @@ if(WIN32)
     )
 endif()
 
+qt_add_translation(HALO_QM_FILES
+    translations/halo_ui_ru.ts
+    translations/halo_dialogs_ru.ts
+)
+set_source_files_properties(${HALO_QM_FILES} PROPERTIES GENERATED TRUE)
+set(HALO_TRANSLATIONS_QRC "${CMAKE_CURRENT_BINARY_DIR}/halo_translations.qrc")
+file(WRITE "${HALO_TRANSLATIONS_QRC}"
+    "<RCC>\n  <qresource prefix=\"/i18n\">\n    <file alias=\"halo_ui_ru.qm\">${CMAKE_CURRENT_BINARY_DIR}/halo_ui_ru.qm</file>\n    <file alias=\"halo_dialogs_ru.qm\">${CMAKE_CURRENT_BINARY_DIR}/halo_dialogs_ru.qm</file>\n  </qresource>\n</RCC>\n")
+set_source_files_properties("${HALO_TRANSLATIONS_QRC}" PROPERTIES OBJECT_DEPENDS "${HALO_QM_FILES}")
+
 qt_add_resources(LAUNCHER_RESOURCES
     resources/backgrounds/backgrounds.qrc
     resources/multimc/multimc.qrc
@@ -1268,6 +1294,7 @@ qt_add_resources(LAUNCHER_RESOURCES
     resources/documents/documents.qrc
     resources/halo/halo.qrc
     resources/halo_icons/halo_icons.qrc
+    "${HALO_TRANSLATIONS_QRC}"
     "${CMAKE_CURRENT_BINARY_DIR}/../${Launcher_Branding_LogoQRC}"
 )
 
@@ -1290,7 +1317,7 @@ endif()
 ####### Targets ########
 
 # Add executable
-add_library(Launcher_logic STATIC ${LOGIC_SOURCES} ${LAUNCHER_SOURCES} ${LAUNCHER_RESOURCES})
+add_library(Launcher_logic STATIC ${LOGIC_SOURCES} ${LAUNCHER_SOURCES} ${LAUNCHER_RESOURCES} ${HALO_QM_FILES})
 target_include_directories(Launcher_logic PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(Launcher_logic PUBLIC LAUNCHER_APPLICATION)
 

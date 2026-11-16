@@ -259,6 +259,9 @@ class BaseInstance : public QObject {
         }
     }
 
+    bool isPinned() const;
+    void setPinned(bool pinned);
+
     virtual bool canLaunch() const;
     virtual bool canEdit() const = 0;
     virtual bool canExport() const = 0;

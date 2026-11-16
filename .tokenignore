@@ -21,3 +21,5 @@ launcher/ui/pages/global/LauncherPage.ui
 launcher/ui/widgets/AppearanceWidget.ui
 launcher/updater/prismupdater/PrismUpdater.cpp
 tests/FileSystem_test.cpp
+launcher/InstanceList.cpp
+launcher/CMakeLists.txt

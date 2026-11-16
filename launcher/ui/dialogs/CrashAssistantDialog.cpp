@@ -10,6 +10,7 @@
 #include <QIcon>
 #include <QLabel>
 #include <QMessageBox>
+#include <QPointer>
 #include <QPushButton>
 #include <QScopeGuard>
 #include <QStyle>
@@ -21,6 +22,8 @@
 #include "Application.h"
 #include "diagnostics/CrashAssistantTranslator.h"
 #include "diagnostics/GpuSanityChecker.h"
+#include "diagnostics/LaunchPreflightCheck.h"
+#include "java/JavaInstallList.h"
 #include "settings/SettingsObject.h"
 #include "ui/GuiUtil.h"
 
@@ -199,10 +202,45 @@ void CrashAssistantDialog::onApplyFix()
             break;
         }
         case RecommendedFix::SwitchJava: {
-            QMessageBox::information(this, tr("Java Setting"),
-                tr("Please configure Java %1 in instance settings under Settings -> Java.")
-                .arg(m_diagnosis.requiredJavaVersion));
-            accept();
+            if (!m_instance || !m_instance->settings()) {
+                QMessageBox::warning(this, tr("Warning"), tr("Instance is no longer available."));
+                return;
+            }
+            const int parsedMajor = m_diagnosis.requiredJavaVersion.toInt();
+            const int minMajor = parsedMajor > 0 ? parsedMajor : 21;
+            QPointer<CrashAssistantDialog> self(this);
+            if (m_btnApplyFix) {
+                m_btnApplyFix->setEnabled(false);
+            }
+            JavaInstallPtr matched;
+            if (APPLICATION_DYN != nullptr && APPLICATION_DYN->javalist()) {
+                matched = LaunchPreflightCheck::findBestInstalledJava(APPLICATION_DYN->javalist(), minMajor, true, true);
+            }
+            if (!self) {
+                return;
+            }
+            if (m_btnApplyFix) {
+                m_btnApplyFix->setEnabled(true);
+            }
+            if (!m_instance || !m_instance->settings()) {
+                QMessageBox::warning(this, tr("Warning"), tr("Instance is no longer available."));
+                return;
+            }
+            if (matched) {
+                m_instance->settings()->set("OverrideJavaLocation", true);
+                m_instance->settings()->set("JavaPath", matched->path);
+                m_instance->saveNow();
+                QMessageBox::information(
+                    this, tr("Java Updated"),
+                    tr("Switched instance Java to %1 (%2).\nYou can now relaunch Minecraft.")
+                        .arg(matched->id.toString(), matched->path));
+                accept();
+            } else {
+                QMessageBox::information(this, tr("Java Setting"),
+                                         tr("No compatible Java %1+ installation was found automatically. "
+                                            "Please configure Java %1 in instance settings under Settings -> Java.")
+                                             .arg(m_diagnosis.requiredJavaVersion));
+            }
             break;
         }
         case RecommendedFix::DisableShaders: {

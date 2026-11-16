@@ -118,22 +118,32 @@ DiagnosisResult CrashAnalyzer::detectOutOfMemory(const QString& fullText, int ex
     return res;
 }
 
-DiagnosisResult CrashAnalyzer::detectJavaVersionMismatch(const QString& fullText, BaseInstance* instance)
+DiagnosisResult CrashAnalyzer::detectJavaVersionMismatch(const QString& fullText, [[maybe_unused]] BaseInstance* instance)
 {
     DiagnosisResult res;
-    static const QRegularExpression javaPattern(R"(class file version (\d+)\.0.*compiled by a more recent version of the Java Runtime)", QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression javaPattern(
+        R"((?:compiled by a more recent version of the Java Runtime \(class file version (\d+)\.\d+\)|class file version (\d+)\.\d+.*compiled by a more recent version of the Java Runtime))",
+        QRegularExpression::CaseInsensitiveOption);
     auto match = javaPattern.match(fullText);
 
     bool isJavaMismatch = match.hasMatch() || fullText.contains("UnsupportedClassVersionError", Qt::CaseInsensitive);
 
     if (!isJavaMismatch) return res;
 
-    int classVer = match.hasMatch() ? match.captured(1).toInt() : 65;
-    QString requiredJava = "21";
-    if (classVer >= 65) requiredJava = "21";
-    else if (classVer >= 61) requiredJava = "17";
-    else if (classVer >= 60) requiredJava = "16";
-    else if (classVer >= 52) requiredJava = "8";
+    const QString cap = !match.captured(1).isEmpty() ? match.captured(1) : match.captured(2);
+    int classVer = match.hasMatch() && !cap.isEmpty() ? cap.toInt() : 65;
+    QString requiredJava = QStringLiteral("21");
+    if (classVer >= 66) {
+        requiredJava = QString::number(classVer - 44);
+    } else if (classVer >= 65) {
+        requiredJava = QStringLiteral("21");
+    } else if (classVer >= 61) {
+        requiredJava = QStringLiteral("17");
+    } else if (classVer >= 60) {
+        requiredJava = QStringLiteral("16");
+    } else if (classVer >= 52) {
+        requiredJava = QStringLiteral("8");
+    }
 
     res.category = CrashCategory::JavaVersion;
     res.fixAction = RecommendedFix::SwitchJava;

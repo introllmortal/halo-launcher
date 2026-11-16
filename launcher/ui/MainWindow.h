@@ -52,7 +52,10 @@
 
 class LaunchController;
 class NewsChecker;
+class QAction;
+class QButtonGroup;
 class QLineEdit;
+class QPushButton;
 class QShowEvent;
 class QToolButton;
 class InstanceInspector;
@@ -185,6 +188,8 @@ class MainWindow : public QMainWindow {
     void showInstanceContextMenu(const QPoint&);
     void shareLatestLogMclogs();
     void updateSelectedModpack();
+    void rollbackSelectedModpack();
+    void checkSelectedInstanceModUpdates();
 
     void updateMainToolBar();
 
@@ -236,6 +241,8 @@ class MainWindow : public QMainWindow {
     void applyModernChromeVisibility();
     void setSelectedInstanceById(const QString& id);
     void updateStatusCenter();
+    void updateQuickLaunchAction();
+    void launchMostRecentInstance();
     void setInstanceActionsEnabled(bool enabled);
 
     void runModalTask(Task* task);
@@ -253,6 +260,11 @@ class MainWindow : public QMainWindow {
     LauncherSidebar* m_sidebar = nullptr;
     InstanceInspector* m_inspector = nullptr;
     QLineEdit* m_searchEdit = nullptr;
+    QButtonGroup* m_loaderFilterGroup = nullptr;
+    QPushButton* m_filterAllButton = nullptr;
+    QPushButton* m_runningFilterButton = nullptr;
+    QAction* m_quickLaunchAction = nullptr;
+    QAction* m_whatsNewAction = nullptr;
     KonamiCode* secretEventFilter = nullptr;
 
     std::shared_ptr<Setting> instanceToolbarSetting = nullptr;

@@ -27,14 +27,6 @@
 
 #include "Application.h"
 #include "BuildConfig.h"
-#include "translations/TranslationsModel.h"
-
-namespace {
-QString uiLabel(const QString& translated, const char* englishLiteral, const QString& ruFallback)
-{
-    return TranslationsModel::trFallback(APPLICATION ? APPLICATION->translations() : nullptr, translated, englishLiteral, ruFallback);
-}
-}  // namespace
 
 LauncherSidebar::LauncherSidebar(const Actions& actions, QWidget* parent) : QWidget(parent)
 {
@@ -88,6 +80,16 @@ LauncherSidebar::LauncherSidebar(const Actions& actions, QWidget* parent) : QWid
         bindActionVisibility(m_addInstanceButton, actions.addInstance);
     }
     root->addWidget(m_addInstanceButton);
+
+    m_quickLaunchButton = makeNavButton(QStringLiteral("launch"), QString(), this);
+    m_quickLaunchButton->setObjectName(QStringLiteral("sidebarQuickLaunchButton"));
+    if (actions.quickLaunch) {
+        connect(m_quickLaunchButton, &QToolButton::clicked, actions.quickLaunch, &QAction::trigger);
+        bindActionVisibility(m_quickLaunchButton, actions.quickLaunch);
+    } else {
+        m_quickLaunchButton->hide();
+    }
+    root->addWidget(m_quickLaunchButton);
 
     root->addSpacing(8);
 
@@ -198,34 +200,52 @@ void LauncherSidebar::updateAccount(const MinecraftAccountPtr& account)
     if (account && !account->profileName().isEmpty()) {
         QString label = account->displayName();
         if (account->isInUse()) {
-            label = uiLabel(tr("%1 (in use)"), "%1 (in use)", QStringLiteral("%1 (используется)")).arg(label);
+            label = tr("%1 (in use)").arg(label);
         }
         m_accountButton->setText(label);
         m_accountButton->setToolTip(account->nameWithType());
         auto face = account->getFace(22, 22);
         m_accountButton->setIcon(face.isNull() ? QIcon::fromTheme(QStringLiteral("noaccount")) : QIcon(face));
     } else {
-        m_accountButton->setText(uiLabel(tr("Accounts"), "Accounts", QStringLiteral("Аккаунты")));
-        m_accountButton->setToolTip(uiLabel(tr("Manage Minecraft accounts and skins"),
-                                            "Manage Minecraft accounts and skins",
-                                            QStringLiteral("Управление аккаунтами Minecraft и скинами")));
+        m_accountButton->setText(tr("Accounts"));
+        m_accountButton->setToolTip(tr("Manage Minecraft accounts and skins"));
         m_accountButton->setIcon(QIcon::fromTheme(QStringLiteral("noaccount")));
     }
 }
 
+void LauncherSidebar::updateQuickLaunch(const QString& instanceName, bool canLaunch)
+{
+    m_quickLaunchName = instanceName;
+    m_canQuickLaunch = canLaunch;
+    if (!m_quickLaunchButton) {
+        return;
+    }
+    if (instanceName.isEmpty()) {
+        m_quickLaunchButton->setText(tr("Quick Play"));
+        m_quickLaunchButton->setToolTip(QString());
+        m_quickLaunchButton->setEnabled(false);
+        return;
+    }
+    const QString label = m_quickLaunchButton->fontMetrics().elidedText(instanceName, Qt::ElideRight, 146);
+    m_quickLaunchButton->setText(label);
+    m_quickLaunchButton->setToolTip(tr("Quick launch: %1").arg(instanceName));
+    m_quickLaunchButton->setEnabled(canLaunch);
+}
+
 void LauncherSidebar::retranslateUi()
 {
-    m_librarySectionLabel->setText(uiLabel(tr("LIBRARY"), "LIBRARY", QStringLiteral("БИБЛИОТЕКА")));
-    m_systemSectionLabel->setText(uiLabel(tr("LAUNCHER"), "LAUNCHER", QStringLiteral("ЛАУНЧЕР")));
-    m_instancesButton->setText(uiLabel(tr("Instances"), "Instances", QStringLiteral("Сборки")));
-    m_addInstanceButton->setText(uiLabel(tr("Add Instance"), "Add Instance", QStringLiteral("Добавить сборку")));
-    m_foldersButton->setText(uiLabel(tr("Folders"), "Folders", QStringLiteral("Папки")));
-    m_updateButton->setText(uiLabel(tr("Updates"), "Updates", QStringLiteral("Обновления")));
-    m_settingsButton->setText(uiLabel(tr("Settings"), "Settings", QStringLiteral("Настройки")));
-    m_helpButton->setText(uiLabel(tr("Help"), "Help", QStringLiteral("Помощь")));
+    m_librarySectionLabel->setText(tr("LIBRARY"));
+    m_systemSectionLabel->setText(tr("LAUNCHER"));
+    m_instancesButton->setText(tr("Instances"));
+    m_addInstanceButton->setText(tr("Add Instance"));
+    m_foldersButton->setText(tr("Folders"));
+    m_updateButton->setText(tr("Updates"));
+    m_settingsButton->setText(tr("Settings"));
+    m_helpButton->setText(tr("Help"));
     if (m_closeButton) {
-        m_closeButton->setText(uiLabel(tr("Close"), "Close", QStringLiteral("Закрыть")));
+        m_closeButton->setText(tr("Close"));
     }
-    m_catButton->setText(uiLabel(tr("Mascot"), "Mascot", QStringLiteral("Маскот")));
+    m_catButton->setText(tr("Mascot"));
+    updateQuickLaunch(m_quickLaunchName, m_canQuickLaunch);
     updateAccount(m_currentAccount);
 }

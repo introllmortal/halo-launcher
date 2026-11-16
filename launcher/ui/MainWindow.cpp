@@ -64,14 +64,17 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QProgressDialog>
+#include <QPushButton>
 #include <QShortcut>
 #include <QShowEvent>
 #include <QStatusBar>
+#include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -110,11 +113,14 @@
 #include "ui/dialogs/NewInstanceDialog.h"
 #include "ui/dialogs/NewsDialog.h"
 #include "ui/dialogs/ProgressDialog.h"
+#include "ui/dialogs/ReleaseNotesDialog.h"
 #include "ui/dialogs/skins/SkinManageDialog.h"
 #include "ui/instanceview/InstanceDelegate.h"
 #include "ui/instanceview/InstanceProxyModel.h"
 #include "ui/instanceview/InstanceView.h"
 #include "ui/pages/instance/ManagedPackUpdater.h"
+#include "ui/pages/instance/ModFolderPage.h"
+#include "ui/pages/instance/PackSnapshot.h"
 #include "ui/themes/ITheme.h"
 #include "ui/themes/ThemeManager.h"
 #include "ui/widgets/InstanceInspector.h"
@@ -174,6 +180,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
     // Configure shared submenus used by menus, sidebar, inspector, and shortcuts
     {
         ui->actionFoldersButton->setMenu(ui->foldersMenu);
+
+        m_whatsNewAction = new QAction(QIcon::fromTheme(QStringLiteral("news")), tr("What's New..."), this);
+        m_whatsNewAction->setToolTip(tr("View the latest Halo Launcher release changelog."));
+        connect(m_whatsNewAction, &QAction::triggered, this, [this]() { ReleaseNotesDialog::openLatest(this); });
+        ui->helpMenu->insertAction(ui->actionAbout, m_whatsNewAction);
 
         ui->actionHelpButton->setMenu(new QMenu(this));
         ui->actionHelpButton->menu()->addActions(ui->helpMenu->actions());
@@ -259,8 +270,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
     auto* centerTopBar = new QWidget(centerWorkspace);
     centerTopBar->setObjectName(QStringLiteral("centerTopBar"));
     centerTopBar->setAttribute(Qt::WA_StyledBackground, true);
-    auto* topBarLayout = new QHBoxLayout(centerTopBar);
-    topBarLayout->setContentsMargins(16, 12, 16, 12);
+    auto* centerTopBarLayout = new QVBoxLayout(centerTopBar);
+    centerTopBarLayout->setContentsMargins(16, 10, 16, 10);
+    centerTopBarLayout->setSpacing(8);
+
+    auto* topBarLayout = new QHBoxLayout();
+    topBarLayout->setContentsMargins(0, 0, 0, 0);
     topBarLayout->setSpacing(10);
 
     m_searchEdit = new QLineEdit(centerTopBar);
@@ -295,6 +310,47 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
         ui->newsToolBar->hide();
         ui->actionMoreNews->setVisible(false);
     }
+
+    centerTopBarLayout->addLayout(topBarLayout);
+
+    auto* filterBar = new QWidget(centerTopBar);
+    filterBar->setObjectName(QStringLiteral("instanceFilterBar"));
+    auto* filterLayout = new QHBoxLayout(filterBar);
+    filterLayout->setContentsMargins(0, 0, 0, 0);
+    filterLayout->setSpacing(6);
+
+    m_loaderFilterGroup = new QButtonGroup(filterBar);
+    m_loaderFilterGroup->setExclusive(true);
+
+    auto addLoaderPill = [&](InstanceProxyModel::LoaderFilter filter, const QString& label) -> QPushButton* {
+        auto* pill = new QPushButton(label, filterBar);
+        pill->setObjectName(QStringLiteral("filterPillButton"));
+        pill->setCheckable(true);
+        pill->setCursor(Qt::PointingHandCursor);
+        pill->setFocusPolicy(Qt::NoFocus);
+        m_loaderFilterGroup->addButton(pill, static_cast<int>(filter));
+        filterLayout->addWidget(pill);
+        return pill;
+    };
+
+    m_filterAllButton = addLoaderPill(InstanceProxyModel::LoaderFilter::All, QStringLiteral("All"));
+    m_filterAllButton->setChecked(true);
+    addLoaderPill(InstanceProxyModel::LoaderFilter::Vanilla, QStringLiteral("Vanilla"));
+    addLoaderPill(InstanceProxyModel::LoaderFilter::NeoForge, QStringLiteral("NeoForge"));
+    addLoaderPill(InstanceProxyModel::LoaderFilter::Forge, QStringLiteral("Forge"));
+    addLoaderPill(InstanceProxyModel::LoaderFilter::Fabric, QStringLiteral("Fabric"));
+    addLoaderPill(InstanceProxyModel::LoaderFilter::Quilt, QStringLiteral("Quilt"));
+
+    filterLayout->addStretch(1);
+
+    m_runningFilterButton = new QPushButton(QStringLiteral("Running"), filterBar);
+    m_runningFilterButton->setObjectName(QStringLiteral("filterPillButton"));
+    m_runningFilterButton->setCheckable(true);
+    m_runningFilterButton->setCursor(Qt::PointingHandCursor);
+    m_runningFilterButton->setFocusPolicy(Qt::NoFocus);
+    filterLayout->addWidget(m_runningFilterButton);
+
+    centerTopBarLayout->addWidget(filterBar);
 
     centerLayout->addWidget(centerTopBar);
 
@@ -342,15 +398,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
 
         proxymodel = new InstanceProxyModel(this);
         proxymodel->setSourceModel(APPLICATION->instances());
+        proxymodel->setDynamicSortFilter(true);
         proxymodel->sort(0);
         connect(proxymodel, &InstanceProxyModel::dataChanged, this, &MainWindow::instanceDataChanged);
-        connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString& text) {
-            proxymodel->setSearchQuery(text);
+        auto syncFilterSelection = [this]() {
             if (!m_selectedInstance) {
                 setSelectedInstanceById(APPLICATION->settings()->get("SelectedInstance").toString());
             } else if (auto current = view->selectionModel()->currentIndex(); current.isValid()) {
                 view->selectionModel()->select(current, QItemSelectionModel::ClearAndSelect);
             }
+        };
+        connect(m_searchEdit, &QLineEdit::textChanged, this, [this, syncFilterSelection](const QString& text) {
+            proxymodel->setSearchQuery(text);
+            syncFilterSelection();
+        });
+        connect(m_loaderFilterGroup, &QButtonGroup::idClicked, this, [this, syncFilterSelection](int id) {
+            proxymodel->setLoaderFilter(static_cast<InstanceProxyModel::LoaderFilter>(id));
+            syncFilterSelection();
+        });
+        connect(m_runningFilterButton, &QPushButton::toggled, this, [this, syncFilterSelection](bool checked) {
+            proxymodel->setRunningOnly(checked);
+            syncFilterSelection();
         });
 
         view->setModel(proxymodel);
@@ -362,8 +430,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
 
     // Left Navigation Rail
     {
+        m_quickLaunchAction = new QAction(this);
+        connect(m_quickLaunchAction, &QAction::triggered, this, &MainWindow::launchMostRecentInstance);
+
         LauncherSidebar::Actions sbActions;
         sbActions.addInstance = ui->actionAddInstance;
+        sbActions.quickLaunch = m_quickLaunchAction;
         sbActions.settings = ui->actionSettings;
         sbActions.checkUpdate = ui->actionCheckUpdate;
         sbActions.helpAction = ui->actionHelpButton;
@@ -396,7 +468,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
 
         m_inspector = new InstanceInspector(inspActions, ui->centralWidget);
         connect(m_inspector, &InstanceInspector::shareLogRequested, this, &MainWindow::shareLatestLogMclogs);
+        connect(m_inspector, &InstanceInspector::openLogRequested, this, [this]() {
+            if (m_selectedInstance) {
+                APPLICATION->showInstanceWindow(m_selectedInstance, QStringLiteral("console"));
+            }
+        });
         connect(m_inspector, &InstanceInspector::updatePackRequested, this, &MainWindow::updateSelectedModpack);
+        connect(m_inspector, &InstanceInspector::rollbackSnapshotRequested, this, &MainWindow::rollbackSelectedModpack);
+        connect(m_inspector, &InstanceInspector::checkModUpdatesRequested, this, &MainWindow::checkSelectedInstanceModUpdates);
     }
 
     ui->horizontalLayout->addWidget(m_sidebar);
@@ -445,16 +524,21 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
 
     // handle newly added instances
     connect(APPLICATION->instances(), &InstanceList::instanceSelectRequest, this, &MainWindow::instanceSelectRequest);
+    connect(APPLICATION->instances(), &QAbstractItemModel::rowsInserted, this, &MainWindow::updateQuickLaunchAction);
+    connect(APPLICATION->instances(), &QAbstractItemModel::rowsRemoved, this, &MainWindow::updateQuickLaunchAction);
+    connect(APPLICATION->instances(), &QAbstractItemModel::modelReset, this, &MainWindow::updateQuickLaunchAction);
+    connect(APPLICATION->instances(), &QAbstractItemModel::dataChanged, this, [this]() {
+        updateQuickLaunchAction();
+        if (proxymodel && proxymodel->runningOnly()) {
+            proxymodel->invalidate();
+        }
+    });
 
     // When the global settings page closes, we want to know about it and update our state
     connect(APPLICATION, &Application::globalSettingsApplied, this, &MainWindow::globalSettingsClosed);
 
-    m_statusLeft = new QLabel(
-        TranslationsModel::trFallback(APPLICATION->translations(), tr("No instance selected"), "No instance selected", QStringLiteral("Сборка не выбрана")),
-        this);
-    m_statusCenter = new QLabel(
-        TranslationsModel::trFallback(APPLICATION->translations(), tr("Total playtime: 0s"), "Total playtime: 0s", QStringLiteral("Общее время игры: 0с")),
-        this);
+    m_statusLeft = new QLabel(tr("No instance selected"), this);
+    m_statusCenter = new QLabel(tr("Total playtime: 0s"), this);
     statusBar()->addPermanentWidget(m_statusLeft, 1);
     statusBar()->addPermanentWidget(m_statusCenter, 0);
 
@@ -504,6 +588,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
     view->setFocus();
 
     retranslateUi();
+    QTimer::singleShot(1500, this, [this]() { ReleaseNotesDialog::checkAndPromptIfUpdated(this); });
 }
 
 // macOS always has a native menu bar, so these fixes are not applicable
@@ -523,13 +608,14 @@ void MainWindow::retranslateUi()
     if (m_selectedInstance) {
         m_statusLeft->setText(m_selectedInstance->getStatusbarDescription());
     } else {
-        m_statusLeft->setText(TranslationsModel::trFallback(APPLICATION->translations(),
-                                                            tr("No instance selected"),
-                                                            "No instance selected",
-                                                            QStringLiteral("Сборка не выбрана")));
+        m_statusLeft->setText(tr("No instance selected"));
     }
 
     ui->retranslateUi(this);
+    if (m_whatsNewAction) {
+        m_whatsNewAction->setText(tr("What's New..."));
+        m_whatsNewAction->setToolTip(tr("View the latest Halo Launcher release changelog."));
+    }
 
     MinecraftAccountPtr defaultAccount = APPLICATION->accounts()->defaultAccount();
     if (defaultAccount) {
@@ -544,11 +630,15 @@ void MainWindow::retranslateUi()
         m_inspector->retranslateUi();
     }
     if (m_searchEdit) {
-        m_searchEdit->setPlaceholderText(TranslationsModel::trFallback(APPLICATION->translations(),
-                                                                       tr("Search instances..."),
-                                                                       "Search instances...",
-                                                                       QStringLiteral("Поиск сборок...")));
+        m_searchEdit->setPlaceholderText(tr("Search instances..."));
     }
+    if (m_filterAllButton) {
+        m_filterAllButton->setText(tr("All"));
+    }
+    if (m_runningFilterButton) {
+        m_runningFilterButton->setText(tr("Running"));
+    }
+    updateQuickLaunchAction();
     if (m_selectedInstance) {
         updateLaunchButton();
     }
@@ -667,38 +757,35 @@ void MainWindow::showInstanceContextMenu(const QPoint& pos)
         actionShareLogSep->setSeparator(true);
         actions.append(actionShareLogSep);
 
-        QAction* actionShareLog =
-            new QAction(TranslationsModel::trFallback(APPLICATION->translations(),
-                                                      tr("Share Latest Log (mclo.gs)"),
-                                                      "Share Latest Log (mclo.gs)",
-                                                      QStringLiteral("Поделиться последним логом (mclo.gs)")),
-                        this);
+        QAction* actionShareLog = new QAction(tr("Share Latest Log (mclo.gs)"), this);
         actionShareLog->setIcon(QIcon::fromTheme("log"));
         connect(actionShareLog, &QAction::triggered, this, &MainWindow::shareLatestLogMclogs);
         actions.append(actionShareLog);
 
         if (ManagedPackUpdater::supportsOneStepUpdate(m_selectedInstance)) {
-            QAction* actionUpdatePack = new QAction(
-                TranslationsModel::trFallback(APPLICATION->translations(),
-                                              tr("Update Modpack"),
-                                              "Update Modpack",
-                                              QStringLiteral("Обновить модпак")),
-                this);
+            QAction* actionUpdatePack = new QAction(tr("Update Modpack"), this);
             actionUpdatePack->setIcon(QIcon::fromTheme(QStringLiteral("checkupdate")));
             connect(actionUpdatePack, &QAction::triggered, this, &MainWindow::updateSelectedModpack);
             actions.append(actionUpdatePack);
         }
+
+        const bool pinned = m_selectedInstance->isPinned();
+        QAction* actionPin = new QAction(pinned ? tr("Unpin from Top") : tr("Pin to Top"), this);
+        actionPin->setIcon(QIcon::fromTheme(QStringLiteral("star")));
+        QPointer<BaseInstance> pinTarget = m_selectedInstance;
+        connect(actionPin, &QAction::triggered, this, [pinTarget, pinned]() {
+            if (pinTarget) {
+                pinTarget->setPinned(!pinned);
+            }
+        });
+        actions.append(actionPin);
     } else {
         auto group = view->groupNameAt(pos);
 
         QAction* actionVoid = new QAction(group.isNull() ? BuildConfig.LAUNCHER_DISPLAYNAME : group, this);
         actionVoid->setEnabled(false);
 
-        QAction* actionCreateInstance = new QAction(TranslationsModel::trFallback(APPLICATION->translations(),
-                                                                                  tr("&Create instance"),
-                                                                                  "&Create instance",
-                                                                                  QStringLiteral("&Создать сборку")),
-                                                    this);
+        QAction* actionCreateInstance = new QAction(tr("&Create instance"), this);
         actionCreateInstance->setToolTip(ui->actionAddInstance->toolTip());
         if (!group.isNull()) {
             QVariantMap instance_action_data;
@@ -712,19 +799,11 @@ void MainWindow::showInstanceContextMenu(const QPoint& pos)
         actions.prepend(actionVoid);
         actions.append(actionCreateInstance);
         if (!group.isNull()) {
-            QAction* actionDeleteGroup = new QAction(TranslationsModel::trFallback(APPLICATION->translations(),
-                                                                                   tr("&Delete group"),
-                                                                                   "&Delete group",
-                                                                                   QStringLiteral("&Удалить группу")),
-                                                     this);
+            QAction* actionDeleteGroup = new QAction(tr("&Delete group"), this);
             connect(actionDeleteGroup, &QAction::triggered, this, [this, group] { deleteGroup(group); });
             actions.append(actionDeleteGroup);
 
-            QAction* actionRenameGroup = new QAction(TranslationsModel::trFallback(APPLICATION->translations(),
-                                                                                   tr("&Rename group"),
-                                                                                   "&Rename group",
-                                                                                   QStringLiteral("&Переименовать группу")),
-                                                     this);
+            QAction* actionRenameGroup = new QAction(tr("&Rename group"), this);
             connect(actionRenameGroup, &QAction::triggered, this, [this, group] { renameGroup(group); });
             actions.append(actionRenameGroup);
         }
@@ -783,15 +862,71 @@ void MainWindow::updateSelectedModpack()
         return;
     }
 
-    BaseInstance* targetInst = m_selectedInstance;
+    const QPointer<BaseInstance> targetInst(m_selectedInstance);
     ManagedPackUpdater::runOneStepUpdate(targetInst, this);
 
-    if (m_selectedInstance == targetInst && targetInst) {
+    if (targetInst && m_selectedInstance == targetInst) {
         if (m_inspector) {
             m_inspector->setInstance(targetInst, APPLICATION->icons()->getIcon(targetInst->iconKey()));
         }
         updateLaunchButton();
         updateStatusCenter();
+    }
+}
+
+void MainWindow::rollbackSelectedModpack()
+{
+    if (!m_selectedInstance || m_selectedInstance->isRunning()) {
+        return;
+    }
+
+    const QList<PackSnapshot::Info> snapshots = PackSnapshot::listSnapshots(m_selectedInstance);
+    if (snapshots.isEmpty()) {
+        return;
+    }
+
+    const PackSnapshot::Info latest = snapshots.constFirst();
+    const QString when = QLocale().toString(latest.createdAt, QLocale::ShortFormat);
+    const QString prevVer = !latest.packVersion.isEmpty() ? latest.packVersion : tr("unknown");
+    const QString nextVer = !latest.targetVersion.isEmpty() ? latest.targetVersion : tr("newer version");
+
+    const QPointer<BaseInstance> targetInst(m_selectedInstance);
+    const auto answer = CustomMessageBox::selectable(
+                            this, tr("Rollback Modpack Configs"),
+                            tr("Restore instance configuration, pack metadata, and config files for \"%1\" from snapshot %2?\n\n"
+                               "Saved version: %3 (taken before updating to %4)")
+                                .arg(targetInst->name(), when, prevVer, nextVer),
+                            QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
+                            ->exec();
+    if (answer != QMessageBox::Yes || !targetInst || targetInst->isRunning()) {
+        return;
+    }
+
+    if (PackSnapshot::restoreSnapshot(targetInst, latest)) {
+        if (m_selectedInstance == targetInst) {
+            refreshCurrentInstance();
+        }
+        CustomMessageBox::selectable(this, tr("Rollback Complete"),
+                                     tr("Configuration snapshot %1 restored successfully.").arg(when),
+                                     QMessageBox::Information)
+            ->show();
+    } else {
+        CustomMessageBox::selectable(this, tr("Rollback Failed"),
+                                     tr("Failed to restore snapshot %1. Check file permissions and try again.").arg(when),
+                                     QMessageBox::Warning)
+            ->show();
+    }
+}
+
+void MainWindow::checkSelectedInstanceModUpdates()
+{
+    if (!m_selectedInstance) {
+        return;
+    }
+    if (auto* win = APPLICATION->showInstanceWindow(m_selectedInstance, QStringLiteral("mods"))) {
+        if (auto* page = dynamic_cast<ModFolderPage*>(win->selectedPage())) {
+            page->checkModUpdatesWhenReady();
+        }
     }
 }
 
@@ -1883,16 +2018,16 @@ void MainWindow::startTask(Task* task)
 
 void MainWindow::instanceChanged(const QModelIndex& current, [[maybe_unused]] const QModelIndex& previous)
 {
+    if (m_selectedInstance) {
+        disconnect(m_selectedInstance, &BaseInstance::runningStatusChanged, this, &MainWindow::refreshCurrentInstance);
+        disconnect(m_selectedInstance, &BaseInstance::profilerChanged, this, &MainWindow::refreshCurrentInstance);
+    }
     if (!current.isValid()) {
-        if (!m_searchEdit || m_searchEdit->text().trimmed().isEmpty()) {
+        if (!proxymodel || !proxymodel->hasActiveFilter()) {
             APPLICATION->settings()->set("SelectedInstance", QString());
         }
         selectionBad();
         return;
-    }
-    if (m_selectedInstance) {
-        disconnect(m_selectedInstance, &BaseInstance::runningStatusChanged, this, &MainWindow::refreshCurrentInstance);
-        disconnect(m_selectedInstance, &BaseInstance::profilerChanged, this, &MainWindow::refreshCurrentInstance);
     }
     QString id = current.data(InstanceList::InstanceIDRole).toString();
     m_selectedInstance = APPLICATION->instances()->getInstanceById(id);
@@ -1941,10 +2076,7 @@ void MainWindow::selectionBad()
 {
     // start by reseting everything...
     m_selectedInstance = nullptr;
-    m_statusLeft->setText(TranslationsModel::trFallback(APPLICATION->translations(),
-                                                        tr("No instance selected"),
-                                                        "No instance selected",
-                                                        QStringLiteral("Сборка не выбрана")));
+    m_statusLeft->setText(tr("No instance selected"));
 
     statusBar()->clearMessage();
     ui->instanceToolBar->setEnabled(false);
@@ -1996,8 +2128,7 @@ void MainWindow::updateStatusCenter()
     int timePlayed = APPLICATION->instances()->getTotalPlayTime();
     if (timePlayed > 0) {
         m_statusCenter->setText(
-            TranslationsModel::trFallback(APPLICATION->translations(), tr("Total playtime: %1"), "Total playtime: %1", QStringLiteral("Общее время игры: %1"))
-                .arg(Time::prettifyDuration(timePlayed, APPLICATION->settings()->get("ShowGameTimeWithoutDays").toBool())));
+            tr("Total playtime: %1").arg(Time::prettifyDuration(timePlayed, APPLICATION->settings()->get("ShowGameTimeWithoutDays").toBool())));
     }
 }
 // "Instance actions" are actions that require an instance to be selected (i.e. "new instance" is not here)
@@ -2013,8 +2144,63 @@ void MainWindow::setInstanceActionsEnabled(bool enabled)
     ui->actionCreateInstanceShortcut->setEnabled(enabled);
 }
 
+void MainWindow::updateQuickLaunchAction()
+{
+    if (!m_quickLaunchAction || !m_sidebar) {
+        return;
+    }
+
+    BaseInstance* best = nullptr;
+    qint64 bestLaunch = -1;
+    const int count = APPLICATION->instances()->count();
+    for (int i = 0; i < count; ++i) {
+        BaseInstance* inst = APPLICATION->instances()->at(i);
+        if (!inst) {
+            continue;
+        }
+        if (inst->lastLaunch() > bestLaunch) {
+            bestLaunch = inst->lastLaunch();
+            best = inst;
+        }
+    }
+
+    if (!best && m_selectedInstance) {
+        best = m_selectedInstance;
+    }
+    if (!best && count > 0) {
+        best = APPLICATION->instances()->at(0);
+    }
+
+    if (best) {
+        const bool canLaunch = best->canLaunch();
+        m_quickLaunchAction->setVisible(true);
+        m_quickLaunchAction->setEnabled(canLaunch);
+        m_quickLaunchAction->setData(best->id());
+        m_sidebar->updateQuickLaunch(best->name(), canLaunch);
+    } else {
+        m_quickLaunchAction->setVisible(false);
+        m_quickLaunchAction->setEnabled(false);
+        m_quickLaunchAction->setData(QVariant());
+        m_sidebar->updateQuickLaunch(QString(), false);
+    }
+}
+
+void MainWindow::launchMostRecentInstance()
+{
+    if (!m_quickLaunchAction) {
+        return;
+    }
+    const QString id = m_quickLaunchAction->data().toString();
+    auto* inst = id.isEmpty() ? nullptr : APPLICATION->instances()->getInstanceById(id);
+    if (inst && inst->canLaunch()) {
+        setSelectedInstanceById(inst->id());
+        activateInstance(inst);
+    }
+}
+
 void MainWindow::refreshCurrentInstance()
 {
     auto current = view->selectionModel()->currentIndex();
     instanceChanged(current, current);
+    updateQuickLaunchAction();
 }

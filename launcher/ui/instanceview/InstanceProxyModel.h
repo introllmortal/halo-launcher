@@ -16,16 +16,40 @@
 #pragma once
 
 #include <QCollator>
+#include <QSet>
 #include <QSortFilterProxyModel>
+
+class BaseInstance;
 
 class InstanceProxyModel : public QSortFilterProxyModel {
     Q_OBJECT
 
    public:
+    enum class LoaderFilter {
+        All,
+        Vanilla,
+        NeoForge,
+        Forge,
+        Fabric,
+        Quilt,
+    };
+    Q_ENUM(LoaderFilter)
+
     InstanceProxyModel(QObject* parent = 0);
 
     void setSearchQuery(const QString& query);
     QString searchQuery() const { return m_searchQuery; }
+
+    void setLoaderFilter(LoaderFilter filter);
+    LoaderFilter loaderFilter() const { return m_loaderFilter; }
+
+    void setRunningOnly(bool runningOnly);
+    bool runningOnly() const { return m_runningOnly; }
+
+    bool hasActiveFilter() const { return !m_searchQuery.isEmpty() || m_loaderFilter != LoaderFilter::All || m_runningOnly; }
+
+    static LoaderFilter detectLoader(const BaseInstance* instance);
+    static LoaderFilter detectLoaderFromComponentUids(const QSet<QString>& uids);
 
    protected:
     bool filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const override;
@@ -36,4 +60,6 @@ class InstanceProxyModel : public QSortFilterProxyModel {
    private:
     QCollator m_naturalSort;
     QString m_searchQuery;
+    LoaderFilter m_loaderFilter = LoaderFilter::All;
+    bool m_runningOnly = false;
 };

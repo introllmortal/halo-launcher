@@ -39,10 +39,6 @@ class TranslationsModel : public QAbstractListModel {
     void updateLanguage(const QString& key);
     QModelIndex selectedIndex() const;
     QString selectedLanguage() const;
-    static QString trFallback(const TranslationsModel* model,
-                              const QString& translated,
-                              const char* englishLiteral,
-                              const QString& ruFallback);
 
     void downloadIndex();
     void setUseSystemLocale(bool useSystemLocale) const;

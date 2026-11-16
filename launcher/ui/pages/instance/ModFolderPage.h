@@ -62,6 +62,7 @@ class ModFolderPage : public ExternalResourcesPage {
 
    public slots:
     void updateFrame(const QModelIndex& current, const QModelIndex& previous) override;
+    void checkModUpdatesWhenReady();
 
    private slots:
     void removeItems(const QItemSelection& selection) override;
@@ -76,6 +77,7 @@ class ModFolderPage : public ExternalResourcesPage {
    protected:
     ModFolderModel* m_model;
     QPointer<ResourceDownload::ModDownloadDialog> m_downloadDialog;
+    bool m_pendingAutoUpdateCheck = false;
 };
 
 class CoreModFolderPage : public ModFolderPage {

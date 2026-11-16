@@ -20,6 +20,8 @@
 #include <icons/IconList.h>
 #include "Application.h"
 #include "InstanceView.h"
+#include "minecraft/MinecraftInstance.h"
+#include "minecraft/PackProfile.h"
 
 #include <QDebug>
 
@@ -41,15 +43,86 @@ void InstanceProxyModel::setSearchQuery(const QString& query)
     invalidateFilter();
 }
 
+void InstanceProxyModel::setLoaderFilter(LoaderFilter filter)
+{
+    if (m_loaderFilter == filter) {
+        return;
+    }
+    m_loaderFilter = filter;
+    invalidateFilter();
+}
+
+void InstanceProxyModel::setRunningOnly(bool runningOnly)
+{
+    if (m_runningOnly == runningOnly) {
+        return;
+    }
+    m_runningOnly = runningOnly;
+    invalidateFilter();
+}
+
+InstanceProxyModel::LoaderFilter InstanceProxyModel::detectLoaderFromComponentUids(const QSet<QString>& uids)
+{
+    if (uids.contains(QStringLiteral("net.neoforge"))) {
+        return LoaderFilter::NeoForge;
+    }
+    if (uids.contains(QStringLiteral("net.minecraftforge"))) {
+        return LoaderFilter::Forge;
+    }
+    if (uids.contains(QStringLiteral("net.fabricmc.fabric-loader"))) {
+        return LoaderFilter::Fabric;
+    }
+    if (uids.contains(QStringLiteral("org.quiltmc.quilt-loader"))) {
+        return LoaderFilter::Quilt;
+    }
+    if (uids.contains(QStringLiteral("net.minecraft"))) {
+        return LoaderFilter::Vanilla;
+    }
+    return LoaderFilter::All;
+}
+
+InstanceProxyModel::LoaderFilter InstanceProxyModel::detectLoader(const BaseInstance* instance)
+{
+    const auto* mcInst = dynamic_cast<const MinecraftInstance*>(instance);
+    if (!mcInst || !mcInst->getPackProfile()) {
+        return LoaderFilter::All;
+    }
+    const auto* profile = mcInst->getPackProfile();
+    QSet<QString> uids;
+    static const QString kKnownUids[] = {
+        QStringLiteral("net.neoforge"),
+        QStringLiteral("net.minecraftforge"),
+        QStringLiteral("net.fabricmc.fabric-loader"),
+        QStringLiteral("org.quiltmc.quilt-loader"),
+        QStringLiteral("net.minecraft"),
+    };
+    for (const QString& uid : kKnownUids) {
+        if (!profile->getComponentVersion(uid).isEmpty()) {
+            uids.insert(uid);
+        }
+    }
+    return detectLoaderFromComponentUids(uids);
+}
+
 bool InstanceProxyModel::filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const
 {
-    if (m_searchQuery.isEmpty()) {
-        return true;
-    }
     const QModelIndex idx = sourceModel()->index(sourceRow, 0, sourceParent);
     if (!idx.isValid()) {
         return false;
     }
+
+    auto* inst = static_cast<BaseInstance*>(idx.data(InstanceList::InstancePointerRole).value<void*>());
+    if (m_runningOnly && (!inst || !inst->isRunning())) {
+        return false;
+    }
+    if (m_loaderFilter != LoaderFilter::All && detectLoader(inst) != m_loaderFilter) {
+        return false;
+    }
+
+    if (m_searchQuery.isEmpty()) {
+        return true;
+    }
+
     const QString name = idx.data(Qt::DisplayRole).toString();
     if (name.contains(m_searchQuery, Qt::CaseInsensitive)) {
         return true;
@@ -58,7 +131,6 @@ bool InstanceProxyModel::filterAcceptsRow(int sourceRow, const QModelIndex& sour
     if (group.contains(m_searchQuery, Qt::CaseInsensitive)) {
         return true;
     }
-    auto* inst = static_cast<BaseInstance*>(idx.data(InstanceList::InstancePointerRole).value<void*>());
     if (inst && inst->isManagedPack() && inst->getManagedPackName().contains(m_searchQuery, Qt::CaseInsensitive)) {
         return true;
     }
@@ -68,7 +140,7 @@ bool InstanceProxyModel::filterAcceptsRow(int sourceRow, const QModelIndex& sour
 QVariant InstanceProxyModel::data(const QModelIndex& index, int role) const
 {
     QVariant data = QSortFilterProxyModel::data(index, role);
-    if (role == Qt::DecorationRole) {
+    if (role == Qt::DecorationRole && APPLICATION_DYN != nullptr && APPLICATION_DYN->icons()) {
         return QVariant(APPLICATION->icons()->getIcon(data.toString()));
     }
     return data;
@@ -92,9 +164,24 @@ bool InstanceProxyModel::lessThan(const QModelIndex& left, const QModelIndex& ri
 
 bool InstanceProxyModel::subSortLessThan(const QModelIndex& left, const QModelIndex& right) const
 {
-    BaseInstance* pdataLeft = static_cast<BaseInstance*>(left.internalPointer());
-    BaseInstance* pdataRight = static_cast<BaseInstance*>(right.internalPointer());
-    QString sortMode = APPLICATION->settings()->get("InstSortMode").toString();
+    auto* pdataLeft = static_cast<BaseInstance*>(left.data(InstanceList::InstancePointerRole).value<void*>());
+    auto* pdataRight = static_cast<BaseInstance*>(right.data(InstanceList::InstancePointerRole).value<void*>());
+    if (!pdataLeft || !pdataRight) {
+        if (pdataLeft != pdataRight) {
+            return pdataLeft != nullptr;
+        }
+        return m_naturalSort.compare(left.data(Qt::DisplayRole).toString(), right.data(Qt::DisplayRole).toString()) < 0;
+    }
+
+    const bool leftPinned = pdataLeft->isPinned();
+    const bool rightPinned = pdataRight->isPinned();
+    if (leftPinned != rightPinned) {
+        return leftPinned;
+    }
+
+    const QString sortMode = (APPLICATION_DYN != nullptr && APPLICATION_DYN->settings())
+                                 ? APPLICATION_DYN->settings()->get("InstSortMode").toString()
+                                 : QStringLiteral("Name");
     if (sortMode == "LastLaunch") {
         return pdataLeft->lastLaunch() > pdataRight->lastLaunch();
     } else if (sortMode == "Playtime") {

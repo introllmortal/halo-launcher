@@ -52,6 +52,16 @@
 #include "settings/SettingsObject.h"
 
 static constexpr QLatin1String g_defaultLangCode("en_US");
+static constexpr QLatin1String g_builtinRuCode("ru");
+
+static void ensureHaloTranslationsResource()
+{
+    static bool initialized = false;
+    if (!initialized) {
+        initialized = true;
+        Q_INIT_RESOURCE(halo_translations);
+    }
+}
 
 namespace {
 enum class FileType : std::uint8_t { None, Qm, Po };
@@ -157,12 +167,14 @@ struct Language {
 struct TranslationsModel::Private {
     QDir m_dir;
 
-    // initial state is just english
-    QList<Language> m_languages = { Language(g_defaultLangCode) };
+    // initial state includes English and built-in Russian Halo overlay
+    QList<Language> m_languages = { Language(g_defaultLangCode), Language(g_builtinRuCode) };
 
     QString m_selectedLanguage = g_defaultLangCode;
     std::unique_ptr<QTranslator> m_qtTranslator;
     std::unique_ptr<QTranslator> m_appTranslator;
+    std::unique_ptr<QTranslator> m_haloUiTranslator;
+    std::unique_ptr<QTranslator> m_haloDialogsTranslator;
 
     Net::Download* m_indexTask = nullptr;
     QString m_downloadingTranslation;
@@ -182,6 +194,7 @@ TranslationsModel::TranslationsModel(const QString& path, QObject* parent) : QAb
     d->m_selectedLanguage = APPLICATION->settings()->get("Language").toString();
     FS::ensureFolderPathExists(path);
     reloadLocalFiles();
+    selectLanguage(d->m_selectedLanguage);
 
     d->watcher = new QFileSystemWatcher(this);
     connect(d->watcher, &QFileSystemWatcher::directoryChanged, this, &TranslationsModel::translationDirChanged);
@@ -264,7 +277,8 @@ void readIndex(const QString& path, QMap<QString, Language>& languages)
 
 void TranslationsModel::reloadLocalFiles()
 {
-    QMap<QString, Language> languages = { { g_defaultLangCode, Language(g_defaultLangCode) } };
+    QMap<QString, Language> languages = { { g_defaultLangCode, Language(g_defaultLangCode) },
+                                          { g_builtinRuCode, Language(g_builtinRuCode) } };
 
     const auto indexPath = d->m_dir.absoluteFilePath("index_v2.json");
     if (!QFileInfo::exists(indexPath)) {
@@ -272,6 +286,9 @@ void TranslationsModel::reloadLocalFiles()
         return;
     }
     readIndex(indexPath, languages);
+    if (!languages.contains(g_builtinRuCode)) {
+        languages.insert(g_builtinRuCode, Language(g_builtinRuCode));
+    }
     auto entries = d->m_dir.entryInfoList({ "mmc_*.qm", "*.po" }, QDir::Files | QDir::NoDotAndDotDot);
     for (auto& entry : entries) {
         auto completeSuffix = entry.completeSuffix();
@@ -453,6 +470,10 @@ bool TranslationsModel::selectLanguage(QString key) const
         d->m_noLanguageSet = true;
     }
 
+    if (!langPtr.has_value() && key.startsWith(g_builtinRuCode, Qt::CaseInsensitive)) {
+        langPtr = findLanguageAsOptional(g_builtinRuCode);
+    }
+
     if (!langPtr.has_value()) {
         qWarning() << "Selected invalid language" << key << ", defaulting to" << g_defaultLangCode;
         langCode = g_defaultLangCode;
@@ -461,6 +482,14 @@ bool TranslationsModel::selectLanguage(QString key) const
     }
 
     // uninstall existing translators if there are any
+    if (d->m_haloDialogsTranslator) {
+        QCoreApplication::removeTranslator(d->m_haloDialogsTranslator.get());
+        d->m_haloDialogsTranslator.reset();
+    }
+    if (d->m_haloUiTranslator) {
+        QCoreApplication::removeTranslator(d->m_haloUiTranslator.get());
+        d->m_haloUiTranslator.reset();
+    }
     if (d->m_appTranslator) {
         QCoreApplication::removeTranslator(d->m_appTranslator.get());
         d->m_appTranslator.reset();
@@ -530,6 +559,21 @@ bool TranslationsModel::selectLanguage(QString key) const
     } else {
         d->m_appTranslator.reset();
     }
+
+    if (langCode.startsWith(QStringLiteral("ru"), Qt::CaseInsensitive)) {
+        ensureHaloTranslationsResource();
+        auto loadHaloQm = [&successful](std::unique_ptr<QTranslator>& slot, const QString& resourcePath) {
+            slot = std::make_unique<QTranslator>();
+            if (slot->load(resourcePath) && QCoreApplication::installTranslator(slot.get())) {
+                successful = true;
+            } else {
+                slot.reset();
+            }
+        };
+        loadHaloQm(d->m_haloUiTranslator, QStringLiteral(":/i18n/halo_ui_ru.qm"));
+        loadHaloQm(d->m_haloDialogsTranslator, QStringLiteral(":/i18n/halo_dialogs_ru.qm"));
+    }
+
     d->m_selectedLanguage = langCode;
     return successful;
 }
@@ -593,6 +637,10 @@ void TranslationsModel::downloadTranslation(const QString& key)
         qWarning() << "Will not download an unknown translation" << key;
         return;
     }
+    if (lang->fileName.isEmpty()) {
+        qDebug() << "Skipping download for built-in translation without remote index entry:" << key;
+        return;
+    }
 
     d->m_downloadingTranslation = key;
     const MetaEntryPtr entry = APPLICATION->metacache()->resolveEntry("translations", "mmc_" + key + ".qm");
@@ -642,18 +690,4 @@ void TranslationsModel::indexFailed(const QString& reason) const
 {
     qCritical() << "Translations Index Download Failed:" << reason;
     d->m_indexJob.reset();
-}
-
-QString TranslationsModel::trFallback(const TranslationsModel* model,
-                                      const QString& translated,
-                                      const char* englishLiteral,
-                                      const QString& ruFallback)
-{
-    if (translated != QLatin1String(englishLiteral)) {
-        return translated;
-    }
-    if (model && model->selectedLanguage().startsWith(QStringLiteral("ru"), Qt::CaseInsensitive)) {
-        return ruFallback;
-    }
-    return translated;
 }

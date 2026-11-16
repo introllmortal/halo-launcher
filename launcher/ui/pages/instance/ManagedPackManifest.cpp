@@ -38,16 +38,10 @@
 #include "modplatform/modrinth/ModrinthAPI.h"
 #include "net/ApiDownload.h"
 #include "net/NetJob.h"
-#include "translations/TranslationsModel.h"
 #include "ui/dialogs/CustomMessageBox.h"
 #include "ui/dialogs/ProgressDialog.h"
 
 namespace {
-
-QString uiLabel(const QString& translated, const char* englishLiteral, const QString& ruFallback)
-{
-    return TranslationsModel::trFallback(APPLICATION ? APPLICATION->translations() : nullptr, translated, englishLiteral, ruFallback);
-}
 
 void extractDeltaManifestFields(const QJsonObject& obj, HaloPackVersion& pv)
 {
@@ -87,13 +81,8 @@ bool fetchHaloLatestCandidate(BaseInstance* inst, QWidget* parent, ManagedPackUp
 {
     const QString manifestUrl = inst->settings()->get(QStringLiteral("ManagedPackURL")).toString().trimmed();
     if (manifestUrl.isEmpty()) {
-        CustomMessageBox::selectable(
-            parent,
-            uiLabel(QObject::tr("Missing Update Source"), "Missing Update Source", QStringLiteral("Не указан источник обновлений")),
-            uiLabel(QObject::tr("ManagedPackURL is not configured for this modpack."),
-                    "ManagedPackURL is not configured for this modpack.",
-                    QStringLiteral("Для этой сборки не задан адрес обновлений (ManagedPackURL).")),
-            QMessageBox::Warning)
+        CustomMessageBox::selectable(parent, QObject::tr("Missing Update Source"),
+                                     QObject::tr("ManagedPackURL is not configured for this modpack."), QMessageBox::Warning)
             ->exec();
         return false;
     }
@@ -103,16 +92,13 @@ bool fetchHaloLatestCandidate(BaseInstance* inst, QWidget* parent, ManagedPackUp
     netJob->addNetAction(action);
 
     ProgressDialog progress(parent);
-    progress.setSkipButton(true, uiLabel(QObject::tr("Abort"), "Abort", QStringLiteral("Отмена")));
+    progress.setSkipButton(true, QObject::tr("Abort"));
     progress.execWithTask(netJob.get());
 
     if (!netJob->wasSuccessful()) {
         if (!netJob->wasAborted()) {
-            const QString reason = netJob->failReason().isEmpty()
-                                       ? uiLabel(QObject::tr("Failed to check for modpack updates."),
-                                                 "Failed to check for modpack updates.",
-                                                 QStringLiteral("Не удалось проверить обновления модпака."))
-                                       : netJob->failReason();
+            const QString reason =
+                netJob->failReason().isEmpty() ? QObject::tr("Failed to check for modpack updates.") : netJob->failReason();
             CustomMessageBox::selectable(parent, QObject::tr("Error"), reason, QMessageBox::Critical)->exec();
         }
         return false;
@@ -120,12 +106,8 @@ bool fetchHaloLatestCandidate(BaseInstance* inst, QWidget* parent, ManagedPackUp
 
     const QVector<HaloPackVersion> versions = ManagedPackUpdater::parseHaloPackVersions(*response);
     if (versions.isEmpty()) {
-        CustomMessageBox::selectable(
-            parent, QObject::tr("Error"),
-            uiLabel(QObject::tr("No downloadable modpack versions were found."),
-                    "No downloadable modpack versions were found.",
-                    QStringLiteral("Не найдено доступных версий сборки.")),
-            QMessageBox::Warning)
+        CustomMessageBox::selectable(parent, QObject::tr("Error"), QObject::tr("No downloadable modpack versions were found."),
+                                     QMessageBox::Warning)
             ->exec();
         return false;
     }
@@ -177,29 +159,22 @@ bool fetchPlatformLatestCandidate(BaseInstance* inst,
     }
 
     ProgressDialog progress(parent);
-    progress.setSkipButton(true, uiLabel(QObject::tr("Abort"), "Abort", QStringLiteral("Отмена")));
+    progress.setSkipButton(true, QObject::tr("Abort"));
     progress.execWithTask(fetchJob.get());
 
     if (!fetchJob->wasSuccessful()) {
         if (!fetchJob->wasAborted()) {
             const QString msg = errorReason.isEmpty() ? fetchJob->failReason() : errorReason;
-            CustomMessageBox::selectable(
-                parent, QObject::tr("Error"),
-                msg.isEmpty() ? uiLabel(QObject::tr("Failed to fetch modpack versions."), "Failed to fetch modpack versions.",
-                                        QStringLiteral("Не удалось получить список версий модпака."))
-                              : msg,
-                QMessageBox::Critical)
+            CustomMessageBox::selectable(parent, QObject::tr("Error"),
+                                         msg.isEmpty() ? QObject::tr("Failed to fetch modpack versions.") : msg, QMessageBox::Critical)
                 ->exec();
         }
         return false;
     }
 
     if (versions.isEmpty()) {
-        CustomMessageBox::selectable(
-            parent, QObject::tr("Error"),
-            uiLabel(QObject::tr("No versions available for this modpack."), "No versions available for this modpack.",
-                    QStringLiteral("Для этого модпака не найдено версий.")),
-            QMessageBox::Warning)
+        CustomMessageBox::selectable(parent, QObject::tr("Error"), QObject::tr("No versions available for this modpack."),
+                                     QMessageBox::Warning)
             ->exec();
         return false;
     }
@@ -327,7 +302,7 @@ bool fetchLatestCandidate(BaseInstance* inst, QWidget* parent, ManagedPackUpdate
 bool askConfirmUpdateDialog(BaseInstance* inst, const ManagedPackUpdateCandidate& candidate, QWidget* parent)
 {
     QDialog dlg(parent);
-    dlg.setWindowTitle(uiLabel(QObject::tr("Modpack Update"), "Modpack Update", QStringLiteral("Обновление модпака")));
+    dlg.setWindowTitle(QObject::tr("Modpack Update"));
     dlg.setMinimumSize(520, 380);
     dlg.resize(560, 440);
 
@@ -346,14 +321,12 @@ bool askConfirmUpdateDialog(BaseInstance* inst, const ManagedPackUpdateCandidate
 
     const QString currentVer = inst->getManagedPackVersionName().isEmpty() ? QStringLiteral("—") : inst->getManagedPackVersionName();
     const QString targetVer = candidate.versionName.isEmpty() ? candidate.displayName : candidate.versionName;
-    auto* versionInfo = new QLabel(
-        uiLabel(QObject::tr("Version: %1 → %2"), "Version: %1 → %2", QStringLiteral("Версия: %1 → %2")).arg(currentVer, targetVer),
-        &dlg);
+    auto* versionInfo = new QLabel(QObject::tr("Version: %1 → %2").arg(currentVer, targetVer), &dlg);
     versionInfo->setWordWrap(true);
     metaRow->addWidget(versionInfo, 1);
 
     if (candidate.isDelta) {
-        auto* deltaBadge = new QLabel(uiLabel(QObject::tr("Delta Sync"), "Delta Sync", QStringLiteral("Дельта-обновление")), &dlg);
+        auto* deltaBadge = new QLabel(QObject::tr("Delta Sync"), &dlg);
         deltaBadge->setObjectName(QStringLiteral("inspectorBadgeUpdate"));
         metaRow->addWidget(deltaBadge);
     }
@@ -372,8 +345,7 @@ bool askConfirmUpdateDialog(BaseInstance* inst, const ManagedPackUpdateCandidate
         }
     });
     if (candidate.changelogHtml.trimmed().isEmpty()) {
-        browser->setPlainText(
-            uiLabel(QObject::tr("No changelog provided."), "No changelog provided.", QStringLiteral("Список изменений не указан.")));
+        browser->setPlainText(QObject::tr("No changelog provided."));
     } else {
         browser->setHtml(candidate.changelogHtml);
     }
@@ -382,11 +354,10 @@ bool askConfirmUpdateDialog(BaseInstance* inst, const ManagedPackUpdateCandidate
     auto* buttons = new QHBoxLayout();
     buttons->addStretch(1);
 
-    auto* cancelBtn = new QPushButton(uiLabel(QObject::tr("Cancel"), "Cancel", QStringLiteral("Отмена")), &dlg);
-    auto* updateBtn = new QPushButton(
-        QIcon::fromTheme(QStringLiteral("checkupdate")),
-        uiLabel(QObject::tr("Update to %1"), "Update to %1", QStringLiteral("Обновить до %1")).arg(targetVer),
-        &dlg);
+    auto* cancelBtn = new QPushButton(QObject::tr("Cancel"), &dlg);
+    auto* updateBtn = new QPushButton(QIcon::fromTheme(QStringLiteral("checkupdate")),
+                                      QObject::tr("Update to %1").arg(targetVer),
+                                      &dlg);
     updateBtn->setObjectName(QStringLiteral("inspectorUpdateButton"));
     updateBtn->setProperty("updateAvailable", true);
     updateBtn->setDefault(true);

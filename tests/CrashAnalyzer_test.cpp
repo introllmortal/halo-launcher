@@ -61,6 +61,39 @@ class CrashAnalyzerTest : public QObject {
         QCOMPARE(res.fixAction, RecommendedFix::UploadLog);
         QVERIFY(res.technicalDetails.contains("Innermost root cause"));
     }
+
+    void testJavaVersionMismatch()
+    {
+        const QStringList logs21 = {
+            "java.lang.UnsupportedClassVersionError: net/example/Mod has been compiled by a more recent version of the Java Runtime (class file version 65.0), this version of the Java Runtime only recognizes class file versions up to 61.0",
+        };
+        const auto res21 = CrashAnalyzer::analyze(nullptr, logs21, {}, 1);
+        QCOMPARE(res21.category, CrashCategory::JavaVersion);
+        QCOMPARE(res21.fixAction, RecommendedFix::SwitchJava);
+        QCOMPARE(res21.requiredJavaVersion, QStringLiteral("21"));
+
+        const QStringList logs17 = {
+            "Caused by: java.lang.UnsupportedClassVersionError: com/foo/Bar has been compiled by a more recent version of the Java Runtime (class file version 61.0)",
+        };
+        const auto res17 = CrashAnalyzer::analyze(nullptr, logs17, {}, 1);
+        QCOMPARE(res17.category, CrashCategory::JavaVersion);
+        QCOMPARE(res17.requiredJavaVersion, QStringLiteral("17"));
+
+        // Capture group 2: "class file version <N>.0 ... compiled by a more recent version of the Java Runtime"
+        const QStringList logsGroup2 = {
+            "java.lang.UnsupportedClassVersionError: class file version 61.0 cannot load class compiled by a more recent version of the Java Runtime",
+        };
+        const auto resGroup2 = CrashAnalyzer::analyze(nullptr, logsGroup2, {}, 1);
+        QCOMPARE(resGroup2.category, CrashCategory::JavaVersion);
+        QCOMPARE(resGroup2.requiredJavaVersion, QStringLiteral("17"));
+
+        const QStringList logsFallback = {
+            "java.lang.UnsupportedClassVersionError: incompatible class format",
+        };
+        const auto resFallback = CrashAnalyzer::analyze(nullptr, logsFallback, {}, 1);
+        QCOMPARE(resFallback.category, CrashCategory::JavaVersion);
+        QCOMPARE(resFallback.requiredJavaVersion, QStringLiteral("21"));
+    }
 };
 
 QTEST_GUILESS_MAIN(CrashAnalyzerTest)

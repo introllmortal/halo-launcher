@@ -44,13 +44,13 @@
 #include <QTextLayout>
 #include <QTextOption>
 #include <QtMath>
+#include <cmath>
 
 #include "Application.h"
 #include "BaseInstance.h"
 #include "InstanceList.h"
 #include "InstanceView.h"
 #include "MMCTime.h"
-#include "translations/TranslationsModel.h"
 #include "ui/widgets/UiAnimations.h"
 
 namespace {
@@ -92,6 +92,23 @@ void drawStatusPills(QPainter* painter, const QRectF& cardRect, BaseInstance* in
 {
     if (!instance) {
         return;
+    }
+
+    if (instance->isPinned()) {
+        painter->save();
+        const QPointF center(cardRect.left() + 12.0, cardRect.top() + 11.5);
+        QPolygonF star;
+        constexpr qreal outerR = 4.6;
+        constexpr qreal innerR = 2.0;
+        for (int i = 0; i < 10; ++i) {
+            const qreal angle = -1.57079632679 + i * 0.628318530718;
+            const qreal r = (i % 2 == 0) ? outerR : innerR;
+            star << QPointF(center.x() + r * std::cos(angle), center.y() + r * std::sin(angle));
+        }
+        painter->setPen(QPen(QColor(217, 119, 6, 210), 0.9));
+        painter->setBrush(QColor(250, 204, 21));
+        painter->drawPolygon(star);
+        painter->restore();
     }
 
     struct StatusDot {
@@ -160,16 +177,10 @@ QString cardSubtitle(BaseInstance* instance, const QModelIndex& index)
         return {};
     }
     if (instance->isRunning()) {
-        return TranslationsModel::trFallback(APPLICATION ? APPLICATION->translations() : nullptr,
-                                             QObject::tr("Running"),
-                                             "Running",
-                                             QStringLiteral("Запущена"));
+        return QObject::tr("Running");
     }
     if (instance->hasVersionBroken()) {
-        return TranslationsModel::trFallback(APPLICATION ? APPLICATION->translations() : nullptr,
-                                             QObject::tr("Broken"),
-                                             "Broken",
-                                             QStringLiteral("Повреждена"));
+        return QObject::tr("Broken");
     }
     if (instance->isManagedPack() && !instance->getManagedPackVersionName().isEmpty()) {
         return instance->getManagedPackVersionName();

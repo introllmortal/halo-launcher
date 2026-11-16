@@ -27,6 +27,7 @@ class QIcon;
 class QLabel;
 class QPushButton;
 class QStackedWidget;
+class QTimer;
 class QToolButton;
 
 class InstanceInspector : public QWidget {
@@ -56,15 +57,24 @@ class InstanceInspector : public QWidget {
 
    signals:
     void shareLogRequested();
+    void openLogRequested();
     void updatePackRequested();
+    void rollbackSnapshotRequested();
+    void checkModUpdatesRequested();
+
+   protected:
+    void hideEvent(QHideEvent* event) override;
+    void showEvent(QShowEvent* event) override;
 
    private:
     void buildEmptyPage();
     void buildDetailsPage();
     QToolButton* makeGridButton(const QString& iconName, QAction* action, QWidget* parent);
-    static QString trLabel(const QString& translated, const char* englishLiteral, const QString& ruFallback);
     void updatePlayButtonState();
+    void updatePinButtonState();
     void updateMetadata(BaseInstance* instance, bool animateVisibility);
+    void updateSessionMetrics();
+    void syncSessionCardVisibility(bool animate);
 
     Actions m_actions;
     QPointer<BaseInstance> m_instance;
@@ -80,6 +90,7 @@ class InstanceInspector : public QWidget {
     // Instance details state
     QToolButton* m_iconButton = nullptr;
     QLabel* m_titleLabel = nullptr;
+    QToolButton* m_pinButton = nullptr;
     QToolButton* m_renameButton = nullptr;
 
     QLabel* m_runningBadge = nullptr;
@@ -91,8 +102,16 @@ class InstanceInspector : public QWidget {
     QLabel* m_packLabel = nullptr;
     QLabel* m_playtimeLabel = nullptr;
 
+    QFrame* m_sessionCard = nullptr;
+    QLabel* m_sessionDurationLabel = nullptr;
+    QLabel* m_sessionRamLabel = nullptr;
+    QPushButton* m_sessionLogButton = nullptr;
+    QTimer* m_sessionTimer = nullptr;
+
     QToolButton* m_playButton = nullptr;
     QPushButton* m_updatePackButton = nullptr;
+    QPushButton* m_rollbackButton = nullptr;
+    QPushButton* m_checkModsButton = nullptr;
     QPushButton* m_editButton = nullptr;
     QToolButton* m_folderButton = nullptr;
     QToolButton* m_groupButton = nullptr;

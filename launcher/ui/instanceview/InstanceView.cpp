@@ -59,7 +59,6 @@
 
 #include <Application.h>
 #include <InstanceList.h>
-#include "translations/TranslationsModel.h"
 
 template <typename T>
 bool listsIntersect(const QList<T>& l1, const QList<T> t2)
@@ -598,13 +597,8 @@ void InstanceView::paintEvent(QPaintEvent* event)
         ensureAnimationTimerState();
 
         painter.save();
-        auto* translations = APPLICATION_DYN ? APPLICATION_DYN->translations() : nullptr;
-        QString emptyTitle =
-            TranslationsModel::trFallback(translations, tr("No instances found"), "No instances found", QStringLiteral("Сборки не найдены"));
-        QString emptyHint = TranslationsModel::trFallback(translations,
-                                                          tr("Click \"Add Instance\" or adjust your search."),
-                                                          "Click \"Add Instance\" or adjust your search.",
-                                                          QStringLiteral("Нажмите «Добавить сборку» или измените запрос поиска."));
+        QString emptyTitle = tr("No instances found");
+        QString emptyHint = tr("Click \"Add Instance\" or adjust your search.");
         QString emptyString = emptyTitle + "\n" + emptyHint;
 
         painter.setRenderHint(QPainter::Antialiasing, true);
