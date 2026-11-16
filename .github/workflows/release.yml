@@ -30,11 +30,6 @@ jobs:
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          submodules: "true"
-          path: "HaloLauncher-source"
       - name: Download artifacts
         uses: actions/download-artifact@v8
       - name: Grab and store version
@@ -43,72 +38,23 @@ jobs:
           echo "VERSION=$tag_name" >> $GITHUB_ENV
       - name: Package artifacts properly
         run: |
-          mv ${{ github.workspace }}/HaloLauncher-source HaloLauncher-${{ env.VERSION }}
           for f in HaloLauncher-Linux-Qt6-Portable*/HaloLauncher-portable.tar.gz; do
-            [ -e "$f" ] && mv "$f" HaloLauncher-Linux-Qt6-Portable-${{ env.VERSION }}.tar.gz
-          done
-          for f in HaloLauncher-Linux-aarch64-Qt6-Portable*/HaloLauncher-portable.tar.gz; do
-            [ -e "$f" ] && mv "$f" HaloLauncher-Linux-aarch64-Qt6-Portable-${{ env.VERSION }}.tar.gz
+            [ -e "$f" ] && mv "$f" "HaloLauncher-Linux-Portable-${{ env.VERSION }}.tar.gz"
           done
           for f in HaloLauncher-*.AppImage/HaloLauncher-*-x86_64.AppImage; do
-            [ -e "$f" ] && mv "$f" HaloLauncher-Linux-x86_64.AppImage
-          done
-          for f in HaloLauncher-*.AppImage.zsync/HaloLauncher-*-x86_64.AppImage.zsync; do
-            [ -e "$f" ] && mv "$f" HaloLauncher-Linux-x86_64.AppImage.zsync
-          done
-          for f in HaloLauncher-*.AppImage/HaloLauncher-*-aarch64.AppImage; do
-            [ -e "$f" ] && mv "$f" HaloLauncher-Linux-aarch64.AppImage
-          done
-          for f in HaloLauncher-*.AppImage.zsync/HaloLauncher-*-aarch64.AppImage.zsync; do
-            [ -e "$f" ] && mv "$f" HaloLauncher-Linux-aarch64.AppImage.zsync
-          done
-          for f in HaloLauncher-macOS*/HaloLauncher.zip; do
-            [ -e "$f" ] && mv "$f" HaloLauncher-macOS-${{ env.VERSION }}.zip
-          done
-          for f in HaloLauncher-macOS*/HaloLauncher.dmg; do
-            [ -e "$f" ] && mv "$f" HaloLauncher-macOS-${{ env.VERSION }}.dmg
+            [ -e "$f" ] && mv "$f" "HaloLauncher-Linux-${{ env.VERSION }}-x86_64.AppImage"
           done
 
-          tar --exclude='.git' -czf HaloLauncher-${{ env.VERSION }}.tar.gz HaloLauncher-${{ env.VERSION }}
-
-          for d in HaloLauncher-Windows-MSVC*; do
+          for d in HaloLauncher-Windows-MSVC-Portable*; do
             [ -d "${d}" ] || continue
-            cd "${d}" || continue
-            LEGACY="$(echo -n ${d} | grep -o Legacy || true)"
-            ARM64="$(echo -n ${d} | grep -o arm64 || true)"
-            INST="$(echo -n ${d} | grep -o Setup || true)"
-            PORT="$(echo -n ${d} | grep -o Portable || true)"
-            NAME="HaloLauncher-Windows-MSVC"
-            test -z "${LEGACY}" || NAME="${NAME}-Legacy"
-            test -z "${ARM64}" || NAME="${NAME}-arm64"
-            test -z "${PORT}" || NAME="${NAME}-Portable"
-            test -z "${INST}" || mv HaloLauncher-*.exe ../${NAME}-Setup-${{ env.VERSION }}.exe
-            test -n "${INST}" || zip -r -9 "../${NAME}-${{ env.VERSION }}.zip" *
-            cd ..
+            (cd "${d}" && zip -r -9 "../HaloLauncher-Windows-MSVC-Portable-${{ env.VERSION }}.zip" *)
           done
 
-          for d in HaloLauncher-Windows-MinGW-w64*; do
+          for d in HaloLauncher-Windows-MSVC-Setup*; do
             [ -d "${d}" ] || continue
-            cd "${d}" || continue
-            INST="$(echo -n ${d} | grep -o Setup || true)"
-            PORT="$(echo -n ${d} | grep -o Portable || true)"
-            NAME="HaloLauncher-Windows-MinGW-w64"
-            test -z "${PORT}" || NAME="${NAME}-Portable"
-            test -z "${INST}" || mv HaloLauncher-*.exe ../${NAME}-Setup-${{ env.VERSION }}.exe
-            test -n "${INST}" || zip -r -9 "../${NAME}-${{ env.VERSION }}.zip" *
-            cd ..
-          done
-
-          for d in HaloLauncher-Windows-MinGW-arm64*; do
-            [ -d "${d}" ] || continue
-            cd "${d}" || continue
-            INST="$(echo -n ${d} | grep -o Setup || true)"
-            PORT="$(echo -n ${d} | grep -o Portable || true)"
-            NAME="HaloLauncher-Windows-MinGW-arm64"
-            test -z "${PORT}" || NAME="${NAME}-Portable"
-            test -z "${INST}" || mv HaloLauncher-*.exe ../${NAME}-Setup-${{ env.VERSION }}.exe
-            test -n "${INST}" || zip -r -9 "../${NAME}-${{ env.VERSION }}.zip" *
-            cd ..
+            for f in "${d}"/HaloLauncher-*.exe; do
+              [ -e "$f" ] && mv "$f" "HaloLauncher-Windows-MSVC-Setup-${{ env.VERSION }}.exe"
+            done
           done
 
       - name: Create release
@@ -120,26 +66,9 @@ jobs:
           name: Halo Launcher ${{ env.VERSION }}
           draft: false
           prerelease: false
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
           files: |
-            HaloLauncher-Linux-x86_64.AppImage
-            HaloLauncher-Linux-x86_64.AppImage.zsync
-            HaloLauncher-Linux-aarch64.AppImage
-            HaloLauncher-Linux-aarch64.AppImage.zsync
-            HaloLauncher-Linux-Qt6-Portable-${{ env.VERSION }}.tar.gz
-            HaloLauncher-Linux-aarch64-Qt6-Portable-${{ env.VERSION }}.tar.gz
-            HaloLauncher-Windows-MinGW-w64-${{ env.VERSION }}.zip
-            HaloLauncher-Windows-MinGW-w64-Portable-${{ env.VERSION }}.zip
-            HaloLauncher-Windows-MinGW-w64-Setup-${{ env.VERSION }}.exe
-            HaloLauncher-Windows-MinGW-arm64-${{ env.VERSION }}.zip
-            HaloLauncher-Windows-MinGW-arm64-Portable-${{ env.VERSION }}.zip
-            HaloLauncher-Windows-MinGW-arm64-Setup-${{ env.VERSION }}.exe
-            HaloLauncher-Windows-MSVC-arm64-${{ env.VERSION }}.zip
-            HaloLauncher-Windows-MSVC-arm64-Portable-${{ env.VERSION }}.zip
-            HaloLauncher-Windows-MSVC-arm64-Setup-${{ env.VERSION }}.exe
-            HaloLauncher-Windows-MSVC-${{ env.VERSION }}.zip
+            HaloLauncher-Linux-${{ env.VERSION }}-x86_64.AppImage
+            HaloLauncher-Linux-Portable-${{ env.VERSION }}.tar.gz
             HaloLauncher-Windows-MSVC-Portable-${{ env.VERSION }}.zip
             HaloLauncher-Windows-MSVC-Setup-${{ env.VERSION }}.exe
-            HaloLauncher-macOS-${{ env.VERSION }}.zip
-            HaloLauncher-macOS-${{ env.VERSION }}.dmg
-            HaloLauncher-${{ env.VERSION }}.tar.gz
