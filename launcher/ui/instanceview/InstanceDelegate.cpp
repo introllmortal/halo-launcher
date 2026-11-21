@@ -242,9 +242,16 @@ void ListViewDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     path.addRoundedRect(cardRect, kCardRadius, kCardRadius);
 
     painter->fillPath(path, bg);
+    if (hoverP > 0.01 || selectP > 0.01) {
+        QLinearGradient sheen(cardRect.topLeft(), cardRect.bottomLeft());
+        const int topAlpha = qRound((dark ? 18.0 : 28.0) * qMax(hoverP, selectP));
+        sheen.setColorAt(0.0, QColor(255, 255, 255, topAlpha));
+        sheen.setColorAt(0.45, QColor(255, 255, 255, 0));
+        painter->fillPath(path, sheen);
+    }
     if (selectP > 0.01) {
         QColor tint = accent;
-        tint.setAlpha(qRound((dark ? 16.0 : 22.0) * selectP));
+        tint.setAlpha(qRound((dark ? 18.0 : 24.0) * selectP));
         painter->fillPath(path, tint);
     }
 
@@ -259,8 +266,14 @@ void ListViewDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         painter->setPen(Qt::NoPen);
         painter->setBrush(dark ? QColor(16, 19, 26, 165) : QColor(226, 232, 240, 140));
         painter->drawRoundedRect(QRectF(iconRect).adjusted(-4, -4, 4, 4), 8.0, 8.0);
+        const qreal iconScale = 1.0 + 0.06 * hoverP - 0.03 * pressP;
+        painter->save();
+        painter->translate(QRectF(iconRect).center());
+        painter->scale(iconScale, iconScale);
+        painter->translate(-QRectF(iconRect).center());
         opt.icon.paint(painter, iconRect, Qt::AlignCenter, opt.state.testFlag(QStyle::State_Enabled) ? QIcon::Normal : QIcon::Disabled,
                        QIcon::Off);
+        painter->restore();
     }
 
     auto* instance = static_cast<BaseInstance*>(index.data(InstanceList::InstancePointerRole).value<void*>());

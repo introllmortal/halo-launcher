@@ -35,20 +35,18 @@
  */
 
 #include "TranslationsModel.h"
+#include "TranslationsModel_p.h"
 
 #include <QDebug>
+#include <QLibraryInfo>
 #include <memory>
 #include <utility>
 
+#include "Application.h"
 #include "BuildConfig.h"
 #include "FileSystem.h"
 #include "Json.h"
-#include "net/ChecksumValidator.h"
-#include "net/NetJob.h"
-
 #include "POTranslator.h"
-
-#include "Application.h"
 #include "settings/SettingsObject.h"
 
 static constexpr QLatin1String g_defaultLangCode("en_US");
@@ -63,129 +61,9 @@ static void ensureHaloTranslationsResource()
     }
 }
 
-namespace {
-enum class FileType : std::uint8_t { None, Qm, Po };
-
-QString getSystemLocaleName()
-{
-    return QLocale::system().name();
-}
-
-QString getSystemLanguage()
-{
-    return getSystemLocaleName().split('_').front();
-}
-}  // namespace
-
-struct Language {
-    Language() : updated(true) {}
-
-    explicit Language(QString _key) : key(std::move(_key)), updated(key == g_defaultLangCode) { locale = QLocale(key); }
-
-    QString languageName() const
-    {
-        QString result;
-        if (key == "ja_KANJI") {
-            result = locale.nativeLanguageName() + u8" (漢字)";
-        } else if (key == "es_UY") {
-            result = u8"Español de Latinoamérica";
-        } else if (key == "en_NZ") {
-            result = u8"New Zealand English";  // No idea why qt translates this to just english and not to New Zealand English
-        } else if (key == "en@pirate") {
-            result = u8"Tongue of the High Seas";
-        } else if (key == "en@uwu") {
-            result = u8"Cute Engwish";
-        } else if (key == "tok") {
-            result = u8"toki pona";
-        } else if (key == "nan") {
-            result = u8"閩南語";  // Using traditional Chinese script. Not sure if we should use simplified instead?
-        } else {
-            result = locale.nativeLanguageName();
-        }
-
-        if (result.isEmpty()) {
-            result = key;
-        }
-        return result;
-    }
-
-    float percentTranslated() const
-    {
-        if (total == 0) {
-            return 100.0F;
-        }
-        return 100.0F * static_cast<float>(translated) / static_cast<float>(total);
-    }
-
-    void setTranslationStats(const unsigned _translated, const unsigned _untranslated, const unsigned _fuzzy)
-    {
-        translated = _translated;
-        untranslated = _untranslated;
-        fuzzy = _fuzzy;
-        total = translated + untranslated + fuzzy;
-    }
-
-    bool isOfSameNameAs(const Language& other) const { return key == other.key; }
-
-    bool isIdenticalTo(const Language& other) const
-    {
-        return (key == other.key && fileName == other.fileName && fileSize == other.fileSize && fileSha1 == other.fileSha1 &&
-                translated == other.translated && fuzzy == other.fuzzy && total == other.fuzzy && localFileType == other.localFileType);
-    }
-
-    Language& apply(const Language& other)
-    {
-        if (!isOfSameNameAs(other)) {
-            return *this;
-        }
-        fileName = other.fileName;
-        fileSize = other.fileSize;
-        fileSha1 = other.fileSha1;
-        translated = other.translated;
-        fuzzy = other.fuzzy;
-        total = other.total;
-        localFileType = other.localFileType;
-        return *this;
-    }
-
-    QString key;
-    QLocale locale;
-    bool updated;
-
-    QString fileName = QString();
-    std::size_t fileSize = 0;
-    QString fileSha1 = QString();
-
-    unsigned translated = 0;
-    unsigned untranslated = 0;
-    unsigned fuzzy = 0;
-    unsigned total = 0;
-
-    FileType localFileType = FileType::None;
-};
-
-struct TranslationsModel::Private {
-    QDir m_dir;
-
-    // initial state includes English and built-in Russian Halo overlay
-    QList<Language> m_languages = { Language(g_defaultLangCode), Language(g_builtinRuCode) };
-
-    QString m_selectedLanguage = g_defaultLangCode;
-    std::unique_ptr<QTranslator> m_qtTranslator;
-    std::unique_ptr<QTranslator> m_appTranslator;
-    std::unique_ptr<QTranslator> m_haloUiTranslator;
-    std::unique_ptr<QTranslator> m_haloDialogsTranslator;
-
-    Net::Download* m_indexTask = nullptr;
-    QString m_downloadingTranslation;
-    NetJob::Ptr m_downloadJob;
-    NetJob::Ptr m_indexJob;
-    QString m_nextDownload;
-
-    QFileSystemWatcher* watcher = nullptr;
-
-    bool m_noLanguageSet = false;
-};
+using FileType = TranslationsInternal::FileType;
+using TranslationsInternal::getSystemLanguage;
+using TranslationsInternal::getSystemLocaleName;
 
 TranslationsModel::TranslationsModel(const QString& path, QObject* parent) : QAbstractListModel(parent)
 {
@@ -394,6 +272,7 @@ QVariant TranslationsModel::data(const QModelIndex& index, const int role) const
                 }
             }
             qWarning("TranslationModel::data not implemented when role is DisplayRole");
+            return {};
         }
         case Qt::ToolTipRole: {
             return tr("%1:\n%2 translated\n%3 fuzzy\n%4 total")
@@ -482,14 +361,12 @@ bool TranslationsModel::selectLanguage(QString key) const
     }
 
     // uninstall existing translators if there are any
-    if (d->m_haloDialogsTranslator) {
-        QCoreApplication::removeTranslator(d->m_haloDialogsTranslator.get());
-        d->m_haloDialogsTranslator.reset();
+    for (auto it = d->m_haloTranslators.rbegin(); it != d->m_haloTranslators.rend(); ++it) {
+        if (*it) {
+            QCoreApplication::removeTranslator(it->get());
+        }
     }
-    if (d->m_haloUiTranslator) {
-        QCoreApplication::removeTranslator(d->m_haloUiTranslator.get());
-        d->m_haloUiTranslator.reset();
-    }
+    d->m_haloTranslators.clear();
     if (d->m_appTranslator) {
         QCoreApplication::removeTranslator(d->m_appTranslator.get());
         d->m_appTranslator.reset();
@@ -562,16 +439,24 @@ bool TranslationsModel::selectLanguage(QString key) const
 
     if (langCode.startsWith(QStringLiteral("ru"), Qt::CaseInsensitive)) {
         ensureHaloTranslationsResource();
-        auto loadHaloQm = [&successful](std::unique_ptr<QTranslator>& slot, const QString& resourcePath) {
-            slot = std::make_unique<QTranslator>();
-            if (slot->load(resourcePath) && QCoreApplication::installTranslator(slot.get())) {
-                successful = true;
-            } else {
-                slot.reset();
-            }
+        static const QString kHaloQmOverlays[] = {
+            QStringLiteral(":/i18n/halo_ui_ru.qm"),
+            QStringLiteral(":/i18n/halo_dialogs_ru.qm"),
+            QStringLiteral(":/i18n/halo_tools_ru.qm"),
+            QStringLiteral(":/i18n/halo_modtools_ru.qm"),
+            QStringLiteral(":/i18n/halo_packs_ru.qm"),
+            QStringLiteral(":/i18n/halo_game_config_ru.qm"),
+            QStringLiteral(":/i18n/halo_shaders_ru.qm"),
+            QStringLiteral(":/i18n/halo_crash_ru.qm"),
+            QStringLiteral(":/i18n/halo_crash_detectors_ru.qm"),
         };
-        loadHaloQm(d->m_haloUiTranslator, QStringLiteral(":/i18n/halo_ui_ru.qm"));
-        loadHaloQm(d->m_haloDialogsTranslator, QStringLiteral(":/i18n/halo_dialogs_ru.qm"));
+        for (const QString& resourcePath : kHaloQmOverlays) {
+            auto translator = std::make_unique<QTranslator>();
+            if (translator->load(resourcePath) && QCoreApplication::installTranslator(translator.get())) {
+                d->m_haloTranslators.push_back(std::move(translator));
+                successful = true;
+            }
+        }
     }
 
     d->m_selectedLanguage = langCode;
@@ -590,104 +475,4 @@ QModelIndex TranslationsModel::selectedIndex() const
 QString TranslationsModel::selectedLanguage() const
 {
     return d->m_selectedLanguage;
-}
-
-void TranslationsModel::downloadIndex()
-{
-    if (d->m_indexJob || d->m_downloadJob) {
-        return;
-    }
-    qDebug() << "Downloading Translations Index...";
-    d->m_indexJob.reset(new NetJob("Translations Index", APPLICATION->network()));
-    const MetaEntryPtr entry = APPLICATION->metacache()->resolveEntry("translations", "index_v2.json");
-    entry->setStale(true);
-    auto task = Net::Download::makeCached(QUrl(BuildConfig.TRANSLATION_FILES_URL + "index_v2.json"), entry);
-    d->m_indexTask = task.get();
-    d->m_indexJob->addNetAction(task);
-    d->m_indexJob->setAskRetry(false);
-    connect(d->m_indexJob.get(), &NetJob::failed, this, &TranslationsModel::indexFailed);
-    connect(d->m_indexJob.get(), &NetJob::succeeded, this, &TranslationsModel::indexReceived);
-    d->m_indexJob->start();
-}
-
-void TranslationsModel::updateLanguage(const QString& key)
-{
-    if (key == g_defaultLangCode) {
-        qWarning() << "Cannot update builtin language" << key;
-        return;
-    }
-    auto found = findLanguageAsOptional(key);
-    if (!found.has_value()) {
-        qWarning() << "Cannot update invalid language" << key;
-        return;
-    }
-    if (!found->updated) {
-        downloadTranslation(key);
-    }
-}
-
-void TranslationsModel::downloadTranslation(const QString& key)
-{
-    if (d->m_downloadJob) {
-        d->m_nextDownload = key;
-        return;
-    }
-    auto lang = findLanguageAsOptional(key);
-    if (!lang.has_value()) {
-        qWarning() << "Will not download an unknown translation" << key;
-        return;
-    }
-    if (lang->fileName.isEmpty()) {
-        qDebug() << "Skipping download for built-in translation without remote index entry:" << key;
-        return;
-    }
-
-    d->m_downloadingTranslation = key;
-    const MetaEntryPtr entry = APPLICATION->metacache()->resolveEntry("translations", "mmc_" + key + ".qm");
-    entry->setStale(true);
-
-    auto dl = Net::Download::makeCached(QUrl(BuildConfig.TRANSLATION_FILES_URL + lang->fileName), entry);
-    dl->addValidator(new Net::ChecksumValidator(QCryptographicHash::Sha1, lang->fileSha1));
-    dl->setProgress(dl->getProgress(), lang->fileSize);
-
-    d->m_downloadJob.reset(new NetJob("Translation for " + key, APPLICATION->network()));
-    d->m_downloadJob->addNetAction(dl);
-    d->m_downloadJob->setAskRetry(false);
-
-    connect(d->m_downloadJob.get(), &NetJob::succeeded, this, &TranslationsModel::dlGood);
-    connect(d->m_downloadJob.get(), &NetJob::failed, this, &TranslationsModel::dlFailed);
-
-    d->m_downloadJob->start();
-}
-
-void TranslationsModel::downloadNext()
-{
-    if (!d->m_nextDownload.isEmpty()) {
-        downloadTranslation(d->m_nextDownload);
-        d->m_nextDownload.clear();
-    }
-}
-
-void TranslationsModel::dlFailed(const QString& reason)
-{
-    qCritical() << "Translations Download Failed:" << reason;
-    d->m_downloadJob.reset();
-    downloadNext();
-}
-
-void TranslationsModel::dlGood()
-{
-    qDebug() << "Got translation:" << d->m_downloadingTranslation;
-
-    if (d->m_downloadingTranslation == d->m_selectedLanguage) {
-        selectLanguage(d->m_selectedLanguage);
-    }
-    d->m_downloadJob.reset();
-    downloadNext();
-}
-
-void TranslationsModel::indexFailed(const QString& reason) const
-{
-    qCritical() << "Translations Index Download Failed:" << reason;
-    d->m_indexJob.reset();
 }

@@ -63,6 +63,26 @@ NetRequest::NetRequest() : Task()
     connect(&m_retryTimer, &QTimer::timeout, this, &NetRequest::executeTask);
 }
 
+NetRequest::~NetRequest()
+{
+    m_retryTimer.stop();
+    releaseReplyDeferred();
+}
+
+void NetRequest::releaseReplyDeferred()
+{
+    if (!m_reply) {
+        return;
+    }
+    QNetworkReply* old = m_reply.data();
+    m_reply.clear();
+    disconnect(old, nullptr, this, nullptr);
+    if (old->isRunning()) {
+        old->abort();
+    }
+    old->deleteLater();
+}
+
 void NetRequest::addValidator(Validator* v)
 {
     m_sink->addValidator(v);
@@ -128,10 +148,11 @@ void NetRequest::executeTask()
     m_last_progress_time = m_clock.now();
     m_last_progress_bytes = 0;
 
+    releaseReplyDeferred();
     auto rep = getReply(request);
     if (rep == nullptr)  // it failed
         return;
-    m_reply.reset(rep);
+    m_reply = rep;
     connect(rep, &QNetworkReply::uploadProgress, this, &NetRequest::onProgress);
     connect(rep, &QNetworkReply::downloadProgress, this, &NetRequest::onProgress);
     connect(rep, &QNetworkReply::finished, this, &NetRequest::downloadFinished);
@@ -344,7 +365,7 @@ void NetRequest::downloadFinished()
     }
 
     // otherwise, finalize the whole graph
-    m_state = m_sink->finalize(*m_reply.get());
+    m_state = m_sink->finalize(*m_reply);
     if (m_state != State::Succeeded) {
         qCDebug(logCat) << getUid().toString() << "Request failed to finalize:" << m_url.toString();
         m_sink->abort();
@@ -380,7 +401,7 @@ auto NetRequest::abort() -> bool
 {
     m_state = State::AbortedByUser;
     if (m_reply) {
-        disconnect(m_reply.get(), &QNetworkReply::errorOccurred, nullptr, nullptr);
+        disconnect(m_reply.data(), &QNetworkReply::errorOccurred, nullptr, nullptr);
         m_reply->abort();
     }
     return true;

@@ -35,8 +35,10 @@
 
 #pragma once
 
+#include <QList>
 #include <launch/LaunchStep.h>
 #include <launch/LaunchTask.h>
+#include "java/JavaInstall.h"
 #include "meta/Version.h"
 #include "minecraft/MinecraftInstance.h"
 #include "tasks/Task.h"
@@ -51,6 +53,14 @@ class AutoInstallJava : public LaunchStep {
     void executeTask() override;
     bool canAbort() const override { return m_current_task ? m_current_task->canAbort() : false; }
     bool abort() override;
+
+    static bool shouldSkipAutoJava(bool autoSwitchEnabled,
+                                   bool overrideLocation,
+                                   bool isAutomaticJava,
+                                   bool javaPathExists,
+                                   const QString& currentJavaVersion,
+                                   const QList<int>& compatibleMajors);
+    static JavaInstallPtr selectBestLocalJava(const QList<BaseVersion::Ptr>& javas, const QList<int>& compatibleMajors);
 
    protected:
     void setJavaPath(QString path);

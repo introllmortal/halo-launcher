@@ -44,16 +44,21 @@
 #include <QClipboard>
 #include <QDialogButtonBox>
 #include <QEvent>
+#include <QFileInfo>
+#include <QFutureWatcher>
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPointer>
 #include <QPushButton>
 #include <QSortFilterProxyModel>
 #include <QTreeView>
 #include <Qt>
+#include <QtConcurrentRun>
 
 #include "FileSystem.h"
+#include "diagnostics/InstanceStorageCleaner.h"
 #include "tools/MCEditTool.h"
 
 #include "DesktopServices.h"
@@ -92,6 +97,10 @@ WorldListPage::WorldListPage(MinecraftInstance* inst, WorldList* worlds, QWidget
     ui->setupUi(this);
 
     ui->toolBar->insertSpacer(ui->actionRefresh);
+    m_backupAction = new QAction(QIcon::fromTheme(QStringLiteral("export")), tr("Backup (ZIP)"), this);
+    m_backupAction->setToolTip(tr("Create a compressed ZIP backup of this world"));
+    connect(m_backupAction, &QAction::triggered, this, &WorldListPage::backupSelectedWorld);
+    ui->toolBar->insertAction(ui->actionRefresh, m_backupAction);
 
     WorldListProxyModel* proxy = new WorldListProxyModel(this);
     proxy->setSortCaseSensitivity(Qt::CaseInsensitive);
@@ -136,6 +145,9 @@ void WorldListPage::closedImpl()
 
 WorldListPage::~WorldListPage()
 {
+    if (m_backupWatcher && m_backupWatcher->isRunning()) {
+        m_backupWatcher->waitForFinished();
+    }
     m_worlds->stopWatching();
     delete ui;
 }
@@ -381,6 +393,10 @@ void WorldListPage::worldChanged([[maybe_unused]] const QModelIndex& current, [[
     bool hasIcon = !index.data(WorldList::IconFileRole).isNull();
     ui->actionReset_Icon->setEnabled(enable && hasIcon);
 
+    if (m_backupAction) {
+        m_backupAction->setEnabled(enable && !m_backupRunning);
+    }
+
     auto supportsJoin = m_inst && m_inst->traits().contains("feature:is_quick_play_singleplayer");
     ui->actionJoin->setEnabled(enable && supportsJoin);
 
@@ -475,6 +491,73 @@ void WorldListPage::on_actionJoin_triggered()
     auto worldVariant = m_worlds->data(index, WorldList::ObjectRole);
     auto world = (World*)worldVariant.value<void*>();
     APPLICATION->launch(m_inst, LaunchMode::Normal, std::make_shared<MinecraftTarget>(MinecraftTarget::parse(world->folderName(), true)));
+}
+
+void WorldListPage::backupSelectedWorld()
+{
+    if (m_backupRunning || !m_inst) {
+        return;
+    }
+    if (m_inst->isRunning()) {
+        CustomMessageBox::selectable(this, tr("Instance Running"), tr("Stop Minecraft before backing up a world."), QMessageBox::Warning)
+            ->show();
+        return;
+    }
+    const QModelIndex index = getSelectedWorld();
+    if (!index.isValid()) {
+        return;
+    }
+    const QString worldDir = m_worlds->data(index, WorldList::FolderRole).toString();
+    const QString worldName = m_worlds->data(index, WorldList::NameRole).toString();
+    const QString instRoot = m_inst->instanceRoot();
+
+    m_backupRunning = true;
+    if (m_backupAction) {
+        m_backupAction->setEnabled(false);
+    }
+
+    using BackupResult = std::pair<std::optional<QString>, QString>;
+    if (m_backupWatcher) {
+        m_backupWatcher->deleteLater();
+    }
+    m_backupWatcher = new QFutureWatcher<BackupResult>(this);
+    QFutureWatcher<BackupResult>* watcher = m_backupWatcher;
+    QPointer<WorldListPage> pagePtr(this);
+    connect(watcher, &QFutureWatcher<BackupResult>::finished, this, [watcher, pagePtr, worldName]() {
+        const BackupResult res = watcher->result();
+        watcher->deleteLater();
+        if (!pagePtr) {
+            return;
+        }
+        if (pagePtr->m_backupWatcher == watcher) {
+            pagePtr->m_backupWatcher = nullptr;
+        }
+        pagePtr->m_backupRunning = false;
+        pagePtr->worldChanged(QModelIndex(), QModelIndex());
+        if (!res.first.has_value()) {
+            CustomMessageBox::selectable(pagePtr, tr("World Backup Failed"), res.second, QMessageBox::Warning)->show();
+            return;
+        }
+        const QFileInfo fi(*res.first);
+        QPointer<QMessageBox> box = CustomMessageBox::selectable(
+            pagePtr, tr("World Backup Created"),
+            tr("Saved ZIP backup of \"%1\":\n%2 (%3)")
+                .arg(worldName, fi.fileName(), InstanceStorageCleaner::formatBytes(fi.size())),
+            QMessageBox::Information, QMessageBox::Ok);
+        QPushButton* openBtn = box->addButton(tr("Open Folder"), QMessageBox::ActionRole);
+        box->exec();
+        if (pagePtr && box && box->clickedButton() == openBtn) {
+            DesktopServices::openPath(fi.absolutePath());
+        }
+        if (box) {
+            box->deleteLater();
+        }
+    });
+    watcher->setFuture(QtConcurrent::run([instRoot, worldDir]() -> BackupResult {
+        QString err;
+        auto out = InstanceStorageCleaner::createWorldZipBackupAtRoot(instRoot, worldDir, &err);
+        return { out, err };
+    }));
 }
 
 #include "WorldListPage.moc"

@@ -17,32 +17,56 @@
  */
 
 #include "PrintServers.h"
-#include "QHostInfo"
 
-PrintServers::PrintServers(LaunchTask* parent, const QStringList& servers) : LaunchStep(parent)
+#include "net/DnsSrvLookup.h"
+
+PrintServers::PrintServers(LaunchTask* parent, const QStringList& servers) : LaunchStep(parent), m_servers(servers) {}
+
+void PrintServers::clearLookups()
 {
-    m_servers = servers;
+    for (const auto& token : m_lookups) {
+        if (token) {
+            token->abort();
+            token->deleteLater();
+        }
+    }
+    m_lookups.clear();
 }
 
 void PrintServers::executeTask()
 {
-    for (QString server : m_servers) {
-        QHostInfo::lookupHost(server, this, &PrintServers::resolveServer);
+    clearLookups();
+    m_server_to_address.clear();
+
+    if (m_servers.isEmpty()) {
+        emitSucceeded();
+        return;
+    }
+
+    m_pendingCount = m_servers.size();
+    for (const QString& server : m_servers) {
+        m_lookups.append(Net::DnsSrvLookup::lookupHost(
+            server, this, [this, server](const Net::HostLookupResult& hostInfo) { resolveServer(server, hostInfo); }));
     }
 }
 
-void PrintServers::resolveServer(const QHostInfo& host_info)
+bool PrintServers::abort()
 {
-    QString server = host_info.hostName();
-    QString addresses = server + " resolves to:\n  ";
+    clearLookups();
+    m_pendingCount = 0;
+    emitAborted();
+    return true;
+}
 
-    if (!host_info.addresses().isEmpty()) {
-        for (QHostAddress address : host_info.addresses()) {
-            addresses += address.toString();
-            if (!host_info.addresses().endsWith(address)) {
-                addresses += ", ";
-            }
-        }
+void PrintServers::resolveServer(const QString& server, const Net::HostLookupResult& hostInfo)
+{
+    if (isFinished()) {
+        return;
+    }
+
+    QString addresses = server + " resolves to:\n  ";
+    if (hostInfo.ok && !hostInfo.addresses.isEmpty()) {
+        addresses += hostInfo.addresses.join(", ");
     } else {
         addresses += "N/A";
     }
@@ -50,11 +74,11 @@ void PrintServers::resolveServer(const QHostInfo& host_info)
 
     m_server_to_address.insert(server, addresses);
 
-    // print server info in order once all servers are resolved
-    if (m_server_to_address.size() >= m_servers.size()) {
-        for (QString serv : m_servers) {
+    if (--m_pendingCount <= 0) {
+        for (const QString& serv : m_servers) {
             emit logLine(m_server_to_address.value(serv), MessageLevel::Launcher);
         }
+        clearLookups();
         emitSucceeded();
     }
 }

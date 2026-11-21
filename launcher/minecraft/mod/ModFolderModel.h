@@ -48,6 +48,9 @@
 #include "ResourceFolderModel.h"
 #include "minecraft/mod/Resource.h"
 
+#include <QSet>
+#include <QThreadPool>
+
 class BaseInstance;
 class QFileSystemWatcher;
 
@@ -76,6 +79,7 @@ class ModFolderModel : public ResourceFolderModel {
         NumColumns
     };
     ModFolderModel(const QDir& dir, BaseInstance* instance, bool isIndexed, bool createDir, QObject* parent = nullptr);
+    ~ModFolderModel() override;
 
     QString id() const override { return "mods"; }
 
@@ -105,6 +109,10 @@ class ModFolderModel : public ResourceFolderModel {
     void onParseFinished();
 
    private:
+    void requestIconLoad(int row);
+
     QHash<QString, QSet<Mod*>> m_requiredBy;
     QHash<QString, QSet<Mod*>> m_requires;
+    QThreadPool m_iconPool;
+    QSet<QString> m_pendingIconIds;
 };

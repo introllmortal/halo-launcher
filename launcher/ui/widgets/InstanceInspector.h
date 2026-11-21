@@ -19,12 +19,17 @@
 
 #include <QPointer>
 #include <QWidget>
+#include <optional>
+
+#include "ui/widgets/QuickJoinHelper.h"
 
 class BaseInstance;
+class Task;
 class QAction;
 class QFrame;
 class QIcon;
 class QLabel;
+class QMenu;
 class QPushButton;
 class QStackedWidget;
 class QTimer;
@@ -60,7 +65,8 @@ class InstanceInspector : public QWidget {
     void openLogRequested();
     void updatePackRequested();
     void rollbackSnapshotRequested();
-    void checkModUpdatesRequested();
+    void compareModsRequested();
+    void cleanStorageRequested();
 
    protected:
     void hideEvent(QHideEvent* event) override;
@@ -71,6 +77,7 @@ class InstanceInspector : public QWidget {
     void buildDetailsPage();
     QToolButton* makeGridButton(const QString& iconName, QAction* action, QWidget* parent);
     void updatePlayButtonState();
+    void updateQuickJoinState(bool animateVisibility);
     void updatePinButtonState();
     void updateMetadata(BaseInstance* instance, bool animateVisibility);
     void updateSessionMetrics();
@@ -109,9 +116,16 @@ class InstanceInspector : public QWidget {
     QTimer* m_sessionTimer = nullptr;
 
     QToolButton* m_playButton = nullptr;
+    QToolButton* m_quickJoinButton = nullptr;
+    QMenu* m_quickJoinMenu = nullptr;
+    std::optional<QuickJoinHelper::Target> m_activeQuickJoin;
+    QPointer<Task> m_quickJoinPingTask;
+    QString m_pingInstanceId;
+    QString m_pingAddressKey;
+    qint64 m_lastPingMs = 0;
+    std::optional<int> m_lastPingPlayers;
     QPushButton* m_updatePackButton = nullptr;
     QPushButton* m_rollbackButton = nullptr;
-    QPushButton* m_checkModsButton = nullptr;
     QPushButton* m_editButton = nullptr;
     QToolButton* m_folderButton = nullptr;
     QToolButton* m_groupButton = nullptr;
@@ -119,5 +133,7 @@ class InstanceInspector : public QWidget {
     QToolButton* m_exportButton = nullptr;
     QToolButton* m_shortcutButton = nullptr;
     QToolButton* m_shareLogButton = nullptr;
+    QToolButton* m_diffModsButton = nullptr;
+    QToolButton* m_cleanStorageButton = nullptr;
     QPushButton* m_deleteButton = nullptr;
 };

@@ -106,6 +106,11 @@ class PackSnapshotTest : public QObject {
 
         const auto created = PackSnapshot::createSnapshot(&inst, QStringLiteral("1.1.0"));
         QVERIFY(created.has_value());
+
+        // Refuses while running
+        inst.setRunning(true);
+        QVERIFY(!PackSnapshot::createSnapshot(&inst, QStringLiteral("1.2.0")).has_value());
+        inst.setRunning(false);
         QCOMPARE(created->packVersion, QStringLiteral("1.0.0"));
         QCOMPARE(created->targetVersion, QStringLiteral("1.1.0"));
         QCOMPARE(created->modCount, 2);
@@ -214,6 +219,65 @@ class PackSnapshotTest : public QObject {
         QVERIFY(PackSnapshot::restoreSnapshot(&inst, *snap));
         QVERIFY(QFile::exists(FS::PathCombine(inst.gameRoot(), QStringLiteral("config/live.toml"))));
         QVERIFY(!QFile::exists(FS::PathCombine(inst.gameRoot(), QStringLiteral("config/broken.toml"))));
+    }
+
+    void diffDetectsAddedRemovedAndToggledMods()
+    {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+
+        auto global = makeGlobalSettings(FS::PathCombine(tempDir.path(), QStringLiteral("global.cfg")));
+        const QString leftDir = FS::PathCombine(tempDir.path(), QStringLiteral("left"));
+        const QString rightDir = FS::PathCombine(tempDir.path(), QStringLiteral("right"));
+        QVERIFY(FS::ensureFolderPathExists(leftDir));
+        QVERIFY(FS::ensureFolderPathExists(rightDir));
+
+        auto leftSettings = std::make_unique<INISettingsObject>(FS::PathCombine(leftDir, QStringLiteral("instance.cfg")));
+        auto rightSettings = std::make_unique<INISettingsObject>(FS::PathCombine(rightDir, QStringLiteral("instance.cfg")));
+        SnapshotTestInstance leftInst(global.get(), std::move(leftSettings), leftDir);
+        SnapshotTestInstance rightInst(global.get(), std::move(rightSettings), rightDir);
+        leftInst.setName(QStringLiteral("LeftPack"));
+        rightInst.setName(QStringLiteral("RightPack"));
+
+        writeFileBytes(FS::PathCombine(leftInst.modsRoot(), QStringLiteral("sodium.jar")), QByteArrayLiteral("a"));
+        writeFileBytes(FS::PathCombine(leftInst.modsRoot(), QStringLiteral("iris.jar.disabled")), QByteArrayLiteral("b"));
+        writeFileBytes(FS::PathCombine(leftInst.modsRoot(), QStringLiteral("removed_mod.jar")), QByteArrayLiteral("c"));
+        writeFileBytes(FS::PathCombine(leftInst.modsRoot(), QStringLiteral("unchanged.jar")), QByteArrayLiteral("d"));
+
+        const auto snap = PackSnapshot::createSnapshot(&leftInst, QStringLiteral("2.0.0"));
+        QVERIFY(snap.has_value());
+
+        // Mutate leftInst to simulate an update/change vs snapshot
+        QVERIFY(QFile::rename(FS::PathCombine(leftInst.modsRoot(), QStringLiteral("sodium.jar")),
+                              FS::PathCombine(leftInst.modsRoot(), QStringLiteral("sodium.jar.disabled"))));
+        QVERIFY(QFile::rename(FS::PathCombine(leftInst.modsRoot(), QStringLiteral("iris.jar.disabled")),
+                              FS::PathCombine(leftInst.modsRoot(), QStringLiteral("iris.jar"))));
+        QVERIFY(QFile::remove(FS::PathCombine(leftInst.modsRoot(), QStringLiteral("removed_mod.jar"))));
+        writeFileBytes(FS::PathCombine(leftInst.modsRoot(), QStringLiteral("added_mod.jar")), QByteArrayLiteral("new"));
+
+        const PackSnapshot::SnapshotDiff snapDiff = PackSnapshot::diffSnapshotToCurrent(&leftInst, *snap);
+        QCOMPARE(snapDiff.addedCount(), 1);
+        QCOMPARE(snapDiff.removedCount(), 1);
+        QCOMPARE(snapDiff.toggledCount(), 2);
+        QVERIFY(!snapDiff.isEmpty());
+
+        const QString md = snapDiff.toMarkdown();
+        QVERIFY(md.contains(QStringLiteral("added_mod.jar")));
+        QVERIFY(md.contains(QStringLiteral("removed_mod.jar")));
+        QVERIFY(md.contains(QStringLiteral("iris.jar")));
+        QVERIFY(md.contains(QStringLiteral("sodium.jar.disabled")));
+
+        // Identical instance comparison should produce an empty diff
+        writeFileBytes(FS::PathCombine(rightInst.modsRoot(), QStringLiteral("sodium.jar.disabled")), QByteArrayLiteral("a"));
+        writeFileBytes(FS::PathCombine(rightInst.modsRoot(), QStringLiteral("iris.jar")), QByteArrayLiteral("b"));
+        writeFileBytes(FS::PathCombine(rightInst.modsRoot(), QStringLiteral("unchanged.jar")), QByteArrayLiteral("d"));
+        writeFileBytes(FS::PathCombine(rightInst.modsRoot(), QStringLiteral("added_mod.jar")), QByteArrayLiteral("new"));
+
+        const PackSnapshot::SnapshotDiff sameDiff = PackSnapshot::diffInstances(&leftInst, &rightInst);
+        QVERIFY(sameDiff.isEmpty());
+        QCOMPARE(sameDiff.addedCount(), 0);
+        QCOMPARE(sameDiff.removedCount(), 0);
+        QCOMPARE(sameDiff.toggledCount(), 0);
     }
 };
 

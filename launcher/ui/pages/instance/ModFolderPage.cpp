@@ -37,6 +37,7 @@
  */
 
 #include "ModFolderPage.h"
+#include "ModFolderHaloTools.h"
 #include "minecraft/mod/Resource.h"
 #include "ui/dialogs/ExportToModListDialog.h"
 #include "ui/dialogs/InstallLoaderDialog.h"
@@ -111,6 +112,7 @@ ModFolderPage::ModFolderPage(BaseInstance* inst, ModFolderModel* model, QWidget*
     ui->actionsToolbar->insertActionAfter(ui->actionViewHomepage, ui->actionExportMetadata);
 
     ui->actionsToolbar->insertActionAfter(ui->actionViewFolder, ui->actionViewConfigs);
+    ModFolderHaloTools::attach(this, m_instance, m_model, ui->gridLayout, ui->actionsToolbar, ui->actionViewConfigs);
 }
 
 bool ModFolderPage::shouldDisplay() const

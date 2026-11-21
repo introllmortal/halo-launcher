@@ -166,8 +166,12 @@ MSAStep::MSAStep(AccountData* data, bool silent, QString clientId, QString scope
         emit finished(state, message);
     });
     connect(&m_oauth2, &QOAuth2AuthorizationCodeFlow::error, this,
-            [this](const QString& error, const QString& errorDescription, const QUrl& uri) {
+            [this, silent](const QString& error, const QString& errorDescription, const QUrl&) {
                 qWarning() << "Failed to login because" << error << errorDescription;
+                if (silent && error != QStringLiteral("invalid_grant") && error != QStringLiteral("access_denied")) {
+                    emit finished(AccountTaskState::STATE_FAILED_SOFT, errorDescription);
+                    return;
+                }
                 emit finished(AccountTaskState::STATE_FAILED_HARD, errorDescription);
             });
 

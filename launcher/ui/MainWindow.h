@@ -189,7 +189,9 @@ class MainWindow : public QMainWindow {
     void shareLatestLogMclogs();
     void updateSelectedModpack();
     void rollbackSelectedModpack();
-    void checkSelectedInstanceModUpdates();
+    void compareSelectedInstanceMods();
+    void compareSelectedInstanceWithOther();
+    void cleanSelectedInstanceStorage();
 
     void updateMainToolBar();
 

@@ -74,6 +74,7 @@ class LocalPeer : public QObject {
     ~LocalPeer();
     bool isClient();
     bool sendMessage(const QByteArray& message, int timeout);
+    void shutdown();
     ApplicationId applicationId() const;
 
    Q_SIGNALS:

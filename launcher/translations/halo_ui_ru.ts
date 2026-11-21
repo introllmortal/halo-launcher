@@ -80,12 +80,36 @@
         <translation>Откатить обновление</translation>
     </message>
     <message>
-        <source>Check Mod Updates</source>
-        <translation>Проверить моды</translation>
+        <source>Mod Diff</source>
+        <translation>Изменения модов</translation>
     </message>
     <message>
-        <source>Open Mods tab and check Modrinth/CurseForge updates</source>
-        <translation>Открыть моды и проверить обновления на Modrinth/CurseForge</translation>
+        <source>Compare mods with a snapshot or another instance</source>
+        <translation>Сравнить моды со снимком или другой сборкой</translation>
+    </message>
+    <message>
+        <source>Cleanup</source>
+        <translation>Очистка</translation>
+    </message>
+    <message>
+        <source>Scan and clean logs, caches, and old snapshots</source>
+        <translation>Проверить и очистить логи, кэш и старые снимки</translation>
+    </message>
+    <message>
+        <source>Join: %1</source>
+        <translation>Войти: %1</translation>
+    </message>
+    <message>
+        <source>Join: %1 (%2 online)</source>
+        <translation>Войти: %1 (%2 в сети)</translation>
+    </message>
+    <message>
+        <source>Quick-join &quot;%1&quot; (%2)</source>
+        <translation>Быстрый вход в «%1» (%2)</translation>
+    </message>
+    <message>
+        <source>Auto (Reset Pin)</source>
+        <translation>Автовыбор (сбросить)</translation>
     </message>
     <message>
         <source>Edit &amp; Mods</source>
@@ -296,6 +320,59 @@ Saved version: %3 (taken before updating to %4)</source>
     <message>
         <source>View the latest Halo Launcher release changelog.</source>
         <translation>Показать список изменений последнего релиза Halo Launcher.</translation>
+    </message>
+    <message>
+        <source>Compare Mods With...</source>
+        <translation>Сравнить моды с...</translation>
+    </message>
+    <message>
+        <source>Clean Storage...</source>
+        <translation>Очистить место...</translation>
+    </message>
+    <message>
+        <source>Mod Diff Unavailable</source>
+        <translation>Сравнение недоступно</translation>
+    </message>
+    <message>
+        <source>Create a snapshot (by updating a modpack) or add a second instance to compare mods.</source>
+        <translation>Создайте снимок (при обновлении модпака) или добавьте вторую сборку для сравнения модов.</translation>
+    </message>
+</context>
+<context>
+    <name>WorldListPage</name>
+    <message>
+        <source>Backup (ZIP)</source>
+        <translation>Бэкап (ZIP)</translation>
+    </message>
+    <message>
+        <source>Create a compressed ZIP backup of this world</source>
+        <translation>Создать сжатую резервную копию мира в ZIP</translation>
+    </message>
+    <message>
+        <source>Instance Running</source>
+        <translation>Сборка запущена</translation>
+    </message>
+    <message>
+        <source>Stop Minecraft before backing up a world.</source>
+        <translation>Остановите Minecraft перед созданием бэкапа мира.</translation>
+    </message>
+    <message>
+        <source>World Backup Failed</source>
+        <translation>Ошибка бэкапа мира</translation>
+    </message>
+    <message>
+        <source>World Backup Created</source>
+        <translation>Бэкап мира создан</translation>
+    </message>
+    <message>
+        <source>Saved ZIP backup of &quot;%1&quot;:
+%2 (%3)</source>
+        <translation>Сохранён ZIP-бэкап мира «%1»:
+%2 (%3)</translation>
+    </message>
+    <message>
+        <source>Open Folder</source>
+        <translation>Открыть папку</translation>
     </message>
 </context>
 <context>

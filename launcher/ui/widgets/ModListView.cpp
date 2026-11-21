@@ -14,6 +14,7 @@
  */
 
 #include "ModListView.h"
+#include "UiMotionEffects.h"
 #include <QDrag>
 #include <QHeaderView>
 #include <QMouseEvent>
@@ -25,6 +26,7 @@ ModListView::ModListView(QWidget* parent) : QTreeView(parent)
     setAllColumnsShowFocus(true);
     setExpandsOnDoubleClick(false);
     setRootIsDecorated(false);
+    setUniformRowHeights(true);
     setSortingEnabled(true);
     setAlternatingRowColors(true);
     setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -36,6 +38,7 @@ ModListView::ModListView(QWidget* parent) : QTreeView(parent)
     setDragDropMode(QAbstractItemView::DropOnly);
     viewport()->setAcceptDrops(true);
     setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    UiAnimations::installSmoothScroll(this);
 }
 
 void ModListView::setModel(QAbstractItemModel* model)

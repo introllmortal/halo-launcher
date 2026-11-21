@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 /*
- *  Prism Launcher - Minecraft Launcher
- *  Copyright (c) 2022 Jamie Mansfield <jmansfield@cadixdev.org>
+ *  Halo Launcher - Minecraft Launcher
+ *  Copyright (C) 2026 introllmortal <introllmortal@users.noreply.github.com>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -14,56 +14,138 @@
  *
  *  You should have received a copy of the GNU General Public License
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
- *
- * This file incorporates work covered by the following copyright and
- * permission notice:
- *
- *      Copyright 2013-2021 MultiMC Contributors
- *
- *      Licensed under the Apache License, Version 2.0 (the "License");
- *      you may not use this file except in compliance with the License.
- *      You may obtain a copy of the License at
- *
- *          http://www.apache.org/licenses/LICENSE-2.0
- *
- *      Unless required by applicable law or agreed to in writing, software
- *      distributed under the License is distributed on an "AS IS" BASIS,
- *      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *      See the License for the specific language governing permissions and
- *      limitations under the License.
  */
-
 #pragma once
 
-#include <QString>
+#include <QList>
 #include <QWidget>
 
+#include "minecraft/GameOptionsFile.h"
+#include "minecraft/mod/GraphicsModConfigManager.h"
 #include "ui/pages/BasePage.h"
 
-namespace Ui {
-class GameOptionsPage;
+class MinecraftInstance;
+class QButtonGroup;
+class QCheckBox;
+class QComboBox;
+class QLabel;
+class QLineEdit;
+class QPushButton;
+class QSpinBox;
+class QTableWidget;
+class QTabWidget;
+
+namespace GameGraphicsAdvisor {
+struct PresetValues;
 }
 
-class GameOptions;
-class MinecraftInstance;
-
+/**
+ * Instance page for editing Minecraft options.txt, Sodium/Embeddium/Rubidium settings,
+ * and discovered graphics/performance mod configs without launching the game.
+ */
 class GameOptionsPage : public QWidget, public BasePage {
     Q_OBJECT
 
    public:
-    explicit GameOptionsPage(MinecraftInstance* inst, QWidget* parent = 0);
-    virtual ~GameOptionsPage();
+    explicit GameOptionsPage(MinecraftInstance* inst, QWidget* parent = nullptr);
+    ~GameOptionsPage() override = default;
 
     void openedImpl() override;
-    void closedImpl() override;
 
-    virtual QString displayName() const override { return tr("Game Options"); }
-    virtual QIcon icon() const override { return QIcon::fromTheme("settings"); }
-    virtual QString id() const override { return "gameoptions"; }
-    virtual QString helpPage() const override { return "Game-Options-management"; }
-    void retranslate() override;
+    QString displayName() const override { return tr("Game Options"); }
+    QIcon icon() const override { return QIcon::fromTheme("settings"); }
+    QString id() const override { return QStringLiteral("gameoptions"); }
+    QString helpPage() const override { return QStringLiteral("Game-Options-management"); }
+    void retranslate() override {}
 
-   private:  // data
-    Ui::GameOptionsPage* ui = nullptr;
-    std::shared_ptr<GameOptions> m_model;
+   private slots:
+    void reloadAll();
+    void saveAll();
+    void applyPreset(int presetIndex);
+    void applyAutoHardwarePreset();
+    void onModConfigSelected(int index);
+    void filterModConfigTable(const QString& text);
+    void filterRawOptionsTable(const QString& text);
+
+   private:
+    void buildUi();
+    QWidget* buildBasicTab();
+    QWidget* buildSodiumTab();
+    QWidget* buildModConfigsTab();
+    QWidget* buildRawOptionsTab();
+
+    void populateBasicControls();
+    void collectBasicControls();
+    void applyPresetValues(const GameGraphicsAdvisor::PresetValues& values);
+    void populateSodiumControls();
+    void collectSodiumControls();
+    void populateModConfigTable();
+    void collectModConfigTable();
+    void populateRawOptionsTable();
+    void collectRawOptionsTable();
+    void updateRunningState();
+
+    MinecraftInstance* m_instance = nullptr;
+    GameOptionsFile m_options;
+    QString m_loadError;
+    QList<GraphicsModConfigManager::ConfigFileInfo> m_modConfigs;
+    int m_sodiumConfigIndex = -1;
+    QList<GraphicsModConfigManager::Entry> m_sodiumEntries;
+    int m_activeModConfigIndex = -1;
+    QList<GraphicsModConfigManager::Entry> m_activeModEntries;
+
+    QLabel* m_statusLabel = nullptr;
+    QPushButton* m_reloadBtn = nullptr;
+    QPushButton* m_saveBtn = nullptr;
+    QTabWidget* m_tabs = nullptr;
+
+    // Basic options.txt controls
+    QButtonGroup* m_presetGroup = nullptr;
+    QLabel* m_hardwareSummaryLabel = nullptr;
+    QSpinBox* m_renderDistSpin = nullptr;
+    QSpinBox* m_simDistSpin = nullptr;
+    QSpinBox* m_entityDistSpin = nullptr;
+    QSpinBox* m_maxFpsSpin = nullptr;
+    QSpinBox* m_fovSpin = nullptr;
+    QSpinBox* m_gammaSpin = nullptr;
+    QComboBox* m_guiScaleCombo = nullptr;
+    QComboBox* m_graphicsCombo = nullptr;
+    QComboBox* m_cloudsCombo = nullptr;
+    QComboBox* m_particlesCombo = nullptr;
+    QComboBox* m_biomeBlendCombo = nullptr;
+    QSpinBox* m_mipmapSpin = nullptr;
+    QCheckBox* m_smoothLightingCheck = nullptr;
+    QCheckBox* m_entityShadowsCheck = nullptr;
+    QCheckBox* m_viewBobbingCheck = nullptr;
+    QCheckBox* m_fullscreenCheck = nullptr;
+    QCheckBox* m_vsyncCheck = nullptr;
+    QSpinBox* m_masterVolSpin = nullptr;
+    QSpinBox* m_musicVolSpin = nullptr;
+    QSpinBox* m_weatherVolSpin = nullptr;
+    QSpinBox* m_blocksVolSpin = nullptr;
+    QSpinBox* m_hostileVolSpin = nullptr;
+    QSpinBox* m_playerVolSpin = nullptr;
+
+    // Sodium / Embeddium / Rubidium controls
+    QWidget* m_sodiumTab = nullptr;
+    QLabel* m_sodiumTitleLabel = nullptr;
+    QComboBox* m_leavesCombo = nullptr;
+    QComboBox* m_weatherCombo = nullptr;
+    QCheckBox* m_vignetteCheck = nullptr;
+    QSpinBox* m_chunkThreadsSpin = nullptr;
+    QComboBox* m_deferModeCombo = nullptr;
+    QCheckBox* m_entityCullCheck = nullptr;
+    QCheckBox* m_fogOcclusionCheck = nullptr;
+    QCheckBox* m_blockCullCheck = nullptr;
+    QCheckBox* m_animVisibleCheck = nullptr;
+    QSpinBox* m_renderAheadSpin = nullptr;
+
+    // Generic graphics mod configs tab
+    QComboBox* m_modConfigCombo = nullptr;
+    QLineEdit* m_modFilterEdit = nullptr;
+    QTableWidget* m_modTable = nullptr;
+
+    // Raw options.txt tab
+    QLineEdit* m_rawFilterEdit = nullptr;
+    QTableWidget* m_rawTable = nullptr;
 };

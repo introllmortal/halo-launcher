@@ -37,6 +37,12 @@
 
 #include "ResourcePackPage.h"
 
+#include <QButtonGroup>
+#include <QHBoxLayout>
+#include <QPushButton>
+#include <QWidget>
+
+#include "ResourcePackOrderPanel.h"
 #include "ui/dialogs/CustomMessageBox.h"
 #include "ui/dialogs/ProgressDialog.h"
 #include "ui/dialogs/ResourceDownloadDialog.h"
@@ -69,11 +75,110 @@ ResourcePackPage::ResourcePackPage(MinecraftInstance* instance, ResourcePackFold
     ui->actionChangeVersion->setToolTip(tr("Change a mod's version."));
     connect(ui->actionChangeVersion, &QAction::triggered, this, &ResourcePackPage::changeResourcePackVersion);
     ui->actionsToolbar->insertActionAfter(ui->actionUpdateItem, ui->actionChangeVersion);
+
+    m_modeBar = new QWidget(this);
+    m_modeBar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    auto* modeLayout = new QHBoxLayout(m_modeBar);
+    modeLayout->setContentsMargins(0, 2, 0, 4);
+    modeLayout->setSpacing(6);
+
+    m_filesModeBtn = new QPushButton(tr("Files in Folder"), m_modeBar);
+    m_filesModeBtn->setCheckable(true);
+    m_filesModeBtn->setChecked(true);
+    m_orderModeBtn = new QPushButton(tr("In-Game Order"), m_modeBar);
+    m_orderModeBtn->setCheckable(true);
+
+    auto* modeGroup = new QButtonGroup(m_modeBar);
+    modeGroup->setExclusive(true);
+    modeGroup->addButton(m_filesModeBtn, 0);
+    modeGroup->addButton(m_orderModeBtn, 1);
+
+    modeLayout->addWidget(m_filesModeBtn);
+    modeLayout->addWidget(m_orderModeBtn);
+    modeLayout->addStretch(1);
+    ui->gridLayout->addWidget(m_modeBar, 0, 1, 1, 2);
+
+    m_orderPanel = new ResourcePackOrderPanel(m_instance, this, m_model);
+    m_orderPanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    ui->gridLayout->addWidget(m_orderPanel, 1, 1, 3, 2);
+    ui->gridLayout->setRowStretch(0, 0);
+    ui->gridLayout->setRowStretch(1, 1);
+    setOrderViewActive(false);
+
+    connect(m_filesModeBtn, &QPushButton::clicked, this, [this]() { setOrderViewActive(false); });
+    connect(m_orderModeBtn, &QPushButton::clicked, this, [this]() { setOrderViewActive(true); });
+
+    if (m_instance) {
+        connect(m_instance, &BaseInstance::runningStatusChanged, m_orderPanel, [this](bool) {
+            if (!m_orderPanel) {
+                return;
+            }
+            if (!m_orderPanel->hasUnsavedChanges()) {
+                m_orderPanel->reload();
+            } else {
+                m_orderPanel->refreshRunningState();
+            }
+        });
+    }
+}
+
+void ResourcePackPage::setOrderViewActive(bool active)
+{
+    m_orderViewActive = active;
+    ui->treeView->setVisible(!active);
+    ui->filterEdit->setVisible(!active);
+    ui->actionsToolbar->setVisible(!active);
+    if (active) {
+        ui->frame->setVisible(false);
+    } else {
+        const QModelIndex current = ui->treeView->currentIndex();
+        if (current.isValid()) {
+            updateFrame(current, {});
+        } else {
+            ui->frame->clear();
+        }
+    }
+    if (m_orderPanel) {
+        m_orderPanel->setVisible(active);
+        if (active && !m_orderPanel->hasUnsavedChanges()) {
+            m_orderPanel->reload();
+        }
+    }
+}
+
+void ResourcePackPage::openedImpl()
+{
+    ExternalResourcesPage::openedImpl();
+    if (m_orderViewActive) {
+        ui->actionsToolbar->setVisible(false);
+    }
+    if (m_orderPanel && !m_orderPanel->hasUnsavedChanges()) {
+        m_orderPanel->reload();
+    }
+}
+
+void ResourcePackPage::retranslate()
+{
+    ExternalResourcesPage::retranslate();
+    if (m_filesModeBtn) {
+        m_filesModeBtn->setText(tr("Files in Folder"));
+    }
+    if (m_orderModeBtn) {
+        m_orderModeBtn->setText(tr("In-Game Order"));
+    }
 }
 
 void ResourcePackPage::updateFrame(const QModelIndex& current, [[maybe_unused]] const QModelIndex& previous)
 {
+    if (m_orderViewActive) {
+        ui->frame->setVisible(false);
+        return;
+    }
     auto sourceCurrent = m_filterModel->mapToSource(current);
+    if (!sourceCurrent.isValid()) {
+        ui->frame->clear();
+        return;
+    }
     int row = sourceCurrent.row();
     auto& rp = m_model->at(row);
     ui->frame->updateWithResourcePack(rp);

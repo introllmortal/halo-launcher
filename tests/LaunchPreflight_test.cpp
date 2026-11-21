@@ -205,7 +205,7 @@ class LaunchPreflightTest : public QObject {
         auto* profile = inst.getPackProfile();
         profile->buildingFromScratch();
         QVERIFY(profile->installEmpty(QStringLiteral("net.minecraft"), QStringLiteral("Minecraft")));
-        QVERIFY(profile->installEmpty(QStringLiteral("net.neoforge"), QStringLiteral("NeoForge")));
+        QVERIFY(profile->installEmpty(QStringLiteral("net.neoforged"), QStringLiteral("NeoForge")));
 
         // Verify missing Java binary + low modded RAM triggers both issues via analyze()
         rawSettings->set("OverrideJavaLocation", true);

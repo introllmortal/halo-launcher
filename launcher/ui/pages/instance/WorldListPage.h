@@ -36,6 +36,9 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QPointer>
+#include <optional>
+#include <utility>
 
 #include <LoggedProcess.h>
 #include "minecraft/MinecraftInstance.h"
@@ -87,12 +90,16 @@ class WorldListPage : public QMainWindow, public BasePage {
 
     std::shared_ptr<Setting> m_wide_bar_setting = nullptr;
     std::unique_ptr<DataPackFolderModel> m_datapackModel;
+    QAction* m_backupAction = nullptr;
+    QFutureWatcher<std::pair<std::optional<QString>, QString>>* m_backupWatcher = nullptr;
+    bool m_backupRunning = false;
 
    private slots:
     void on_actionCopy_Seed_triggered();
     void on_actionMCEdit_triggered();
     void on_actionRemove_triggered();
     void on_actionAdd_triggered();
+    void backupSelectedWorld();
     void on_actionCopy_triggered();
     void on_actionRename_triggered();
     void on_actionRefresh_triggered();

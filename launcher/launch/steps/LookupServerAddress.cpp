@@ -17,17 +17,14 @@
 
 #include <launch/LaunchTask.h>
 
-LookupServerAddress::LookupServerAddress(LaunchTask* parent) : LaunchStep(parent), m_dnsLookup(new QDnsLookup(this))
-{
-    connect(m_dnsLookup, &QDnsLookup::finished, this, &LookupServerAddress::on_dnsLookupFinished);
+#include "net/DnsSrvLookup.h"
 
-    m_dnsLookup->setType(QDnsLookup::SRV);
-}
+LookupServerAddress::LookupServerAddress(LaunchTask* parent) : LaunchStep(parent) {}
 
 void LookupServerAddress::setLookupAddress(const QString& lookupAddress)
 {
     m_lookupAddress = lookupAddress;
-    m_dnsLookup->setName(QString("_minecraft._tcp.%1").arg(lookupAddress));
+    m_serviceName = QString("_minecraft._tcp.%1").arg(lookupAddress);
 }
 
 void LookupServerAddress::setOutputAddressPtr(MinecraftTarget::Ptr output)
@@ -37,49 +34,60 @@ void LookupServerAddress::setOutputAddressPtr(MinecraftTarget::Ptr output)
 
 bool LookupServerAddress::abort()
 {
-    m_dnsLookup->abort();
+    if (m_dnsLookup) {
+        m_dnsLookup->abort();
+        m_dnsLookup->deleteLater();
+        m_dnsLookup.clear();
+    }
     emitAborted();
     return true;
 }
 
 void LookupServerAddress::executeTask()
 {
-    m_dnsLookup->lookup();
+    if (m_dnsLookup) {
+        m_dnsLookup->abort();
+        m_dnsLookup->deleteLater();
+        m_dnsLookup.clear();
+    }
+    m_dnsLookup = Net::DnsSrvLookup::lookupSrv(m_serviceName, this, [this](const Net::SrvLookupResult& result) { on_dnsLookupFinished(result); });
 }
 
-void LookupServerAddress::on_dnsLookupFinished()
+void LookupServerAddress::on_dnsLookupFinished(const Net::SrvLookupResult& result)
 {
+    if (m_dnsLookup) {
+        m_dnsLookup->deleteLater();
+        m_dnsLookup.clear();
+    }
+
     if (isFinished()) {
         // Aborted
         return;
     }
 
-    if (m_dnsLookup->error() != QDnsLookup::NoError) {
-        emit logLine(QString("Failed to resolve server address (this is NOT an error!) %1: %2\n")
-                         .arg(m_dnsLookup->name(), m_dnsLookup->errorString()),
+    if (!result.ok) {
+        emit logLine(QString("Failed to resolve server address (this is NOT an error!) %1: %2\n").arg(m_serviceName, result.errorString),
                      MessageLevel::Launcher);
         resolve(m_lookupAddress, 25565);  // Technically the task failed, however, we don't abort the launch
                                           // and leave it up to minecraft to fail (or maybe not) when connecting
         return;
     }
 
-    const auto records = m_dnsLookup->serviceRecords();
-    if (records.empty()) {
+    if (result.records.empty()) {
         emit logLine(QString("Failed to resolve server address %1: the DNS lookup succeeded, but no records were returned.\n")
-                         .arg(m_dnsLookup->name()),
+                         .arg(m_serviceName),
                      MessageLevel::Warning);
         resolve(m_lookupAddress, 25565);  // Technically the task failed, however, we don't abort the launch
                                           // and leave it up to minecraft to fail (or maybe not) when connecting
         return;
     }
 
-    const auto& firstRecord = records.at(0);
-    quint16 port = firstRecord.port();
+    const auto& firstRecord = result.records.at(0);
+    quint16 port = firstRecord.port;
 
-    emit logLine(
-        QString("Resolved server address %1 to %2 with port %3\n").arg(m_dnsLookup->name(), firstRecord.target(), QString::number(port)),
-        MessageLevel::Launcher);
-    resolve(firstRecord.target(), port);
+    emit logLine(QString("Resolved server address %1 to %2 with port %3\n").arg(m_serviceName, firstRecord.target, QString::number(port)),
+                 MessageLevel::Launcher);
+    resolve(firstRecord.target, port);
 }
 
 void LookupServerAddress::resolve(const QString& address, quint16 port)
@@ -87,6 +95,5 @@ void LookupServerAddress::resolve(const QString& address, quint16 port)
     m_output->address = address;
     m_output->port = port;
 
-    m_dnsLookup->deleteLater();
     emitSucceeded();
 }

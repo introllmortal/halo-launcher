@@ -155,6 +155,9 @@ class InstanceProxyModelTest : public QObject {
         QCOMPARE(InstanceProxyModel::detectLoaderFromComponentUids({ QStringLiteral("net.minecraft") }),
                  InstanceProxyModel::LoaderFilter::Vanilla);
         QCOMPARE(InstanceProxyModel::detectLoaderFromComponentUids(
+                     { QStringLiteral("net.minecraft"), QStringLiteral("net.neoforged") }),
+                 InstanceProxyModel::LoaderFilter::NeoForge);
+        QCOMPARE(InstanceProxyModel::detectLoaderFromComponentUids(
                      { QStringLiteral("net.minecraft"), QStringLiteral("net.neoforge") }),
                  InstanceProxyModel::LoaderFilter::NeoForge);
         QCOMPARE(InstanceProxyModel::detectLoaderFromComponentUids(
@@ -250,7 +253,7 @@ class InstanceProxyModelTest : public QObject {
 
         auto vanilla = makeMcInst(QStringLiteral("mc-vanilla"), QStringLiteral("Pure World"), {});
         SettingsObject* neoRawSettings = nullptr;
-        auto neoforge = makeMcInst(QStringLiteral("mc-neo"), QStringLiteral("Tech Server"), QStringLiteral("net.neoforge"), &neoRawSettings);
+        auto neoforge = makeMcInst(QStringLiteral("mc-neo"), QStringLiteral("Tech Server"), QStringLiteral("net.neoforged"), &neoRawSettings);
         neoRawSettings->set("ManagedPack", true);
         neoRawSettings->set("ManagedPackName", QStringLiteral("Clockwork Empire"));
         auto fabric = makeMcInst(QStringLiteral("mc-fab"), QStringLiteral("Sodium Light"), QStringLiteral("net.fabricmc.fabric-loader"));

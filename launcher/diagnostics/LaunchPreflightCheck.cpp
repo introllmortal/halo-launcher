@@ -55,6 +55,7 @@ bool instanceHasModLoader(PackProfile* profile)
         return false;
     }
     static const QString kLoaderUids[] = {
+        QStringLiteral("net.neoforged"),
         QStringLiteral("net.neoforge"),
         QStringLiteral("net.minecraftforge"),
         QStringLiteral("net.fabricmc.fabric-loader"),

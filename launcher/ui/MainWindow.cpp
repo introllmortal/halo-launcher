@@ -103,6 +103,8 @@
 #include "ui/GuiUtil.h"
 #include "ui/ViewLogWindow.h"
 #include "ui/dialogs/AboutDialog.h"
+#include "ui/dialogs/ModDiffDialog.h"
+#include "ui/dialogs/StorageCleanerDialog.h"
 #include "ui/dialogs/CopyInstanceDialog.h"
 #include "ui/dialogs/CreateShortcutDialog.h"
 #include "ui/dialogs/CustomMessageBox.h"
@@ -119,7 +121,6 @@
 #include "ui/instanceview/InstanceProxyModel.h"
 #include "ui/instanceview/InstanceView.h"
 #include "ui/pages/instance/ManagedPackUpdater.h"
-#include "ui/pages/instance/ModFolderPage.h"
 #include "ui/pages/instance/PackSnapshot.h"
 #include "ui/themes/ITheme.h"
 #include "ui/themes/ThemeManager.h"
@@ -475,7 +476,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
         });
         connect(m_inspector, &InstanceInspector::updatePackRequested, this, &MainWindow::updateSelectedModpack);
         connect(m_inspector, &InstanceInspector::rollbackSnapshotRequested, this, &MainWindow::rollbackSelectedModpack);
-        connect(m_inspector, &InstanceInspector::checkModUpdatesRequested, this, &MainWindow::checkSelectedInstanceModUpdates);
+        connect(m_inspector, &InstanceInspector::compareModsRequested, this, &MainWindow::compareSelectedInstanceMods);
+        connect(m_inspector, &InstanceInspector::cleanStorageRequested, this, &MainWindow::cleanSelectedInstanceStorage);
     }
 
     ui->horizontalLayout->addWidget(m_sidebar);
@@ -779,6 +781,16 @@ void MainWindow::showInstanceContextMenu(const QPoint& pos)
             }
         });
         actions.append(actionPin);
+
+        QAction* actionCompare = new QAction(tr("Compare Mods With..."), this);
+        actionCompare->setIcon(QIcon::fromTheme(QStringLiteral("checkupdate")));
+        connect(actionCompare, &QAction::triggered, this, &MainWindow::compareSelectedInstanceWithOther);
+        actions.append(actionCompare);
+
+        QAction* actionClean = new QAction(tr("Clean Storage..."), this);
+        actionClean->setIcon(QIcon::fromTheme(QStringLiteral("delete")));
+        connect(actionClean, &QAction::triggered, this, &MainWindow::cleanSelectedInstanceStorage);
+        actions.append(actionClean);
     } else {
         auto group = view->groupNameAt(pos);
 
@@ -918,16 +930,48 @@ void MainWindow::rollbackSelectedModpack()
     }
 }
 
-void MainWindow::checkSelectedInstanceModUpdates()
+void MainWindow::compareSelectedInstanceMods()
 {
     if (!m_selectedInstance) {
         return;
     }
-    if (auto* win = APPLICATION->showInstanceWindow(m_selectedInstance, QStringLiteral("mods"))) {
-        if (auto* page = dynamic_cast<ModFolderPage*>(win->selectedPage())) {
-            page->checkModUpdatesWhenReady();
+    const QList<PackSnapshot::Info> snapshots = PackSnapshot::listSnapshots(m_selectedInstance);
+    if (!snapshots.isEmpty()) {
+        ModDiffDialog::forSnapshotComparison(m_selectedInstance, snapshots, this)->show();
+        return;
+    }
+    compareSelectedInstanceWithOther();
+}
+
+void MainWindow::compareSelectedInstanceWithOther()
+{
+    if (!m_selectedInstance || !APPLICATION_DYN || !APPLICATION->instances()) {
+        return;
+    }
+    QList<BaseInstance*> candidates;
+    const auto instances = APPLICATION->instances();
+    for (int i = 0; i < instances->count(); ++i) {
+        if (BaseInstance* inst = instances->at(i); inst && inst != m_selectedInstance) {
+            candidates.append(inst);
         }
     }
+    if (candidates.isEmpty()) {
+        CustomMessageBox::selectable(this, tr("Mod Diff Unavailable"),
+                                     tr("Create a snapshot (by updating a modpack) or add a second instance to compare mods."),
+                                     QMessageBox::Information)
+            ->show();
+        return;
+    }
+    ModDiffDialog::forInstanceComparison(m_selectedInstance, candidates, this)->show();
+}
+
+void MainWindow::cleanSelectedInstanceStorage()
+{
+    if (!m_selectedInstance) {
+        return;
+    }
+    auto* dlg = new StorageCleanerDialog(m_selectedInstance, this);
+    dlg->show();
 }
 
 void MainWindow::updateMainToolBar()

@@ -4,6 +4,8 @@
 #include "minecraft/MinecraftInstance.h"
 #include "ui/pages/BasePage.h"
 #include "ui/pages/BasePageProvider.h"
+#include "ui/pages/instance/ExternalResourcesPage.h"
+#include "ui/pages/instance/GameOptionsPage.h"
 #include "ui/pages/instance/InstanceSettingsPage.h"
 #include "ui/pages/instance/LogPage.h"
 #include "ui/pages/instance/ManagedPackPage.h"
@@ -45,6 +47,7 @@ class InstancePageProvider : protected QObject, public BasePageProvider {
         values.append(new ServersPage(onesix));
         values.append(new ScreenshotsPage(FS::PathCombine(onesix->gameRoot(), "screenshots")));
         values.append(new InstanceSettingsPage(onesix));
+        values.append(new GameOptionsPage(onesix));
         values.append(new OtherLogsPage("logs", tr("Other Logs"), "Other-Logs", inst));
         return values;
     }

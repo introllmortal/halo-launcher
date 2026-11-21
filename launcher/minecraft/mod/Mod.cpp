@@ -286,10 +286,14 @@ QPixmap Mod::setIcon(QImage new_image) const
 
     if (m_packImageCacheKey.key.isValid())
         PixmapCache::remove(m_packImageCacheKey.key);
+    m_cachedScaledIcon = QPixmap();
+    m_cachedScaledKey = QPixmapCache::Key();
 
     // scale the image to avoid flooding the pixmapcache
-    auto pixmap =
-        QPixmap::fromImage(new_image.scaled({ 64, 64 }, Qt::AspectRatioMode::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+    auto pixmap = QPixmap::fromImage(
+        new_image.size() == QSize(64, 64)
+            ? new_image
+            : new_image.scaled({ 64, 64 }, Qt::AspectRatioMode::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
 
     m_packImageCacheKey.key = PixmapCache::insert(pixmap);
     m_packImageCacheKey.wasEverUsed = true;
@@ -297,21 +301,55 @@ QPixmap Mod::setIcon(QImage new_image) const
     return pixmap;
 }
 
-QPixmap Mod::icon(QSize size, Qt::AspectRatioMode mode) const
+QPixmap Mod::cachedIcon(QSize size, Qt::AspectRatioMode mode) const
 {
-    auto pixmap_transform = [&size, &mode](QPixmap pixmap) {
-        if (size.isNull())
-            return pixmap;
-        return pixmap.scaled(size, mode, Qt::SmoothTransformation);
-    };
+    if (m_packImageCacheKey.key.isValid() && !m_cachedScaledIcon.isNull() && m_cachedScaledKey == m_packImageCacheKey.key &&
+        m_cachedScaledSize == size && m_cachedScaledMode == mode) {
+        return m_cachedScaledIcon;
+    }
 
     QPixmap cached_image;
-    if (PixmapCache::find(m_packImageCacheKey.key, &cached_image)) {
-        return pixmap_transform(cached_image);
+    if (!PixmapCache::find(m_packImageCacheKey.key, &cached_image)) {
+        return {};
+    }
+
+    if (size.isNull() || cached_image.size() == size) {
+        return cached_image;
+    }
+
+    QPixmap scaled = cached_image.scaled(size, mode, Qt::SmoothTransformation);
+    m_cachedScaledIcon = scaled;
+    m_cachedScaledKey = m_packImageCacheKey.key;
+    m_cachedScaledSize = size;
+    m_cachedScaledMode = mode;
+    return scaled;
+}
+
+bool Mod::needsIconLoad() const
+{
+    if (iconPath().isEmpty()) {
+        return false;
+    }
+    if (!m_packImageCacheKey.wasEverUsed && m_packImageCacheKey.wasReadAttempt) {
+        return false;
+    }
+    return true;
+}
+
+void Mod::markIconLoadAttempted() const
+{
+    m_packImageCacheKey.wasReadAttempt = true;
+    m_packImageCacheKey.wasEverUsed = false;
+}
+
+QPixmap Mod::icon(QSize size, Qt::AspectRatioMode mode) const
+{
+    if (QPixmap cached = cachedIcon(size, mode); !cached.isNull()) {
+        return cached;
     }
 
     // No valid image we can get
-    if ((!m_packImageCacheKey.wasEverUsed && m_packImageCacheKey.wasReadAttempt) || iconPath().isEmpty())
+    if (!needsIconLoad())
         return {};
 
     if (m_packImageCacheKey.wasEverUsed) {
@@ -320,8 +358,9 @@ QPixmap Mod::icon(QSize size, Qt::AspectRatioMode mode) const
     }
     // Image got evicted from the cache or an attempt to load it has not been made. load it and retry.
     m_packImageCacheKey.wasReadAttempt = true;
-    if (ModUtils::loadIconFile(*this, &cached_image)) {
-        return pixmap_transform(cached_image);
+    QPixmap loaded;
+    if (ModUtils::loadIconFile(*this, &loaded)) {
+        return cachedIcon(size, mode);
     }
     // Image failed to load
     return {};

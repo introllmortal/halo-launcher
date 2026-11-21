@@ -36,7 +36,15 @@
  */
 
 #include "ShaderPackPage.h"
+#include "ShaderProfileDialog.h"
 #include "ui_ExternalResourcesPage.h"
+
+#include <QCheckBox>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QSignalBlocker>
 
 #include "ResourceDownloadTask.h"
 
@@ -74,6 +82,40 @@ ShaderPackPage::ShaderPackPage(MinecraftInstance* instance, ShaderPackFolderMode
     ui->actionChangeVersion->setToolTip(tr("Change a shader pack's version."));
     connect(ui->actionChangeVersion, &QAction::triggered, this, &ShaderPackPage::changeShaderPackVersion);
     ui->actionsToolbar->insertActionAfter(ui->actionUpdateItem, ui->actionChangeVersion);
+
+    m_shaderBar = new QWidget(this);
+    auto* barLayout = new QHBoxLayout(m_shaderBar);
+    barLayout->setContentsMargins(0, 2, 0, 4);
+    barLayout->setSpacing(10);
+
+    m_enableShadersCheck = new QCheckBox(tr("Enable Shaders"), m_shaderBar);
+    m_shaderStatusLabel = new QLabel(m_shaderBar);
+    m_shaderStatusLabel->setWordWrap(false);
+    m_shaderStatusLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_setActiveBtn = new QPushButton(tr("Set Active"), m_shaderBar);
+    m_configureBtn = new QPushButton(tr("Configure Shader..."), m_shaderBar);
+
+    barLayout->addWidget(m_enableShadersCheck);
+    barLayout->addWidget(m_shaderStatusLabel, 1);
+    barLayout->addWidget(m_setActiveBtn);
+    barLayout->addWidget(m_configureBtn);
+    ui->gridLayout->addWidget(m_shaderBar, 0, 1, 1, 2);
+
+    connect(m_enableShadersCheck, &QCheckBox::toggled, this, &ShaderPackPage::toggleShadersEnabled);
+    connect(m_setActiveBtn, &QPushButton::clicked, this, &ShaderPackPage::setSelectedShaderActive);
+    connect(m_configureBtn, &QPushButton::clicked, this, &ShaderPackPage::configureSelectedShader);
+    connect(ui->treeView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+            [this](const QItemSelection&, const QItemSelection&) { refreshShaderState(); });
+    if (m_model) {
+        connect(m_model, &QAbstractItemModel::dataChanged, this, [this](const QModelIndex&, const QModelIndex&) { refreshShaderState(); });
+        connect(m_model, &QAbstractItemModel::modelReset, this, [this]() { refreshShaderState(); });
+        connect(m_model, &QAbstractItemModel::rowsInserted, this, [this](const QModelIndex&, int, int) { refreshShaderState(); });
+        connect(m_model, &QAbstractItemModel::rowsRemoved, this, [this](const QModelIndex&, int, int) { refreshShaderState(); });
+    }
+    if (m_instance) {
+        connect(m_instance, &BaseInstance::runningStatusChanged, this, [this](bool) { refreshShaderState(); });
+    }
+    refreshShaderState();
 }
 
 void ShaderPackPage::downloadShaderPack()
@@ -262,4 +304,128 @@ void ShaderPackPage::changeShaderPackVersion()
 
     m_downloadDialog->setResourceMetadata(resource.metadata());
     m_downloadDialog->open();
+}
+
+void ShaderPackPage::openedImpl()
+{
+    ExternalResourcesPage::openedImpl();
+    refreshShaderState();
+}
+
+QString ShaderPackPage::selectedShaderFileName() const
+{
+    if (!ui->treeView->selectionModel() || !m_filterModel || !m_model) {
+        return {};
+    }
+    const QModelIndexList rows = ui->treeView->selectionModel()->selectedRows();
+    if (rows.count() != 1) {
+        return {};
+    }
+    const int srcRow = m_filterModel->mapToSource(rows.first()).row();
+    if (srcRow < 0 || srcRow >= m_model->rowCount()) {
+        return {};
+    }
+    const QString rawName = m_model->at(srcRow).fileinfo().fileName();
+    return rawName.endsWith(QStringLiteral(".disabled"), Qt::CaseInsensitive) ? rawName.left(rawName.size() - 9) : rawName;
+}
+
+void ShaderPackPage::refreshShaderState()
+{
+    if (!m_shaderBar || !m_instance) {
+        return;
+    }
+    auto* mcInst = dynamic_cast<MinecraftInstance*>(m_instance);
+    const QString modsRoot = mcInst ? mcInst->modsRoot() : QString();
+    m_shaderState = ShaderConfigManager::loadState(m_instance->gameRoot(), modsRoot);
+
+    const bool running = m_instance->isRunning();
+    const bool hasBackend = m_shaderState.backend != ShaderConfigManager::Backend::Unknown;
+    const QString selected = selectedShaderFileName();
+    bool selectedEnabled = false;
+    if (ui->treeView->selectionModel() && m_filterModel && m_model) {
+        const QModelIndexList rows = ui->treeView->selectionModel()->selectedRows();
+        if (rows.count() == 1) {
+            const int srcRow = m_filterModel->mapToSource(rows.first()).row();
+            if (srcRow >= 0 && srcRow < m_model->rowCount()) {
+                selectedEnabled = m_model->at(srcRow).enabled();
+            }
+        }
+    }
+    const QString configTarget = !selected.isEmpty() ? selected : m_shaderState.activePack;
+
+    const QSignalBlocker blocker(m_enableShadersCheck);
+    m_enableShadersCheck->setChecked(m_shaderState.shadersEnabled);
+    m_enableShadersCheck->setEnabled(hasBackend && !running);
+    m_setActiveBtn->setEnabled(hasBackend && !running && !selected.isEmpty() && selectedEnabled);
+    m_configureBtn->setEnabled(!configTarget.isEmpty());
+
+    if (!hasBackend) {
+        m_shaderStatusLabel->setText(tr("No shader mod (Iris / Oculus / OptiFine) detected."));
+    } else if (running) {
+        m_shaderStatusLabel->setText(tr("Game running — close Minecraft to switch shaders."));
+    } else {
+        const QString engine = ShaderConfigManager::backendDisplayName(m_shaderState.backend);
+        const QString active = m_shaderState.activePack.isEmpty() ? tr("None") : m_shaderState.activePack;
+        m_shaderStatusLabel->setText(tr("%1 | Active: %2").arg(engine, active));
+    }
+}
+
+void ShaderPackPage::toggleShadersEnabled(bool enabled)
+{
+    if (!m_instance || m_instance->isRunning() || m_shaderState.backend == ShaderConfigManager::Backend::Unknown) {
+        refreshShaderState();
+        return;
+    }
+    m_shaderState.shadersEnabled = enabled;
+    QString err;
+    if (!ShaderConfigManager::saveState(m_shaderState, &err)) {
+        QMessageBox::warning(this, tr("Shader Settings"), err);
+    }
+    refreshShaderState();
+}
+
+void ShaderPackPage::setSelectedShaderActive()
+{
+    if (!m_instance || m_instance->isRunning() || m_shaderState.backend == ShaderConfigManager::Backend::Unknown ||
+        !ui->treeView->selectionModel() || !m_filterModel || !m_model) {
+        refreshShaderState();
+        return;
+    }
+    const QModelIndexList rows = ui->treeView->selectionModel()->selectedRows();
+    if (rows.count() != 1) {
+        refreshShaderState();
+        return;
+    }
+    const int srcRow = m_filterModel->mapToSource(rows.first()).row();
+    if (srcRow < 0 || srcRow >= m_model->rowCount() || !m_model->at(srcRow).enabled()) {
+        refreshShaderState();
+        return;
+    }
+    const QString selected = selectedShaderFileName();
+    if (selected.isEmpty()) {
+        refreshShaderState();
+        return;
+    }
+    ShaderConfigManager::State nextState = m_shaderState;
+    nextState.activePack = selected;
+    nextState.shadersEnabled = true;
+    QString err;
+    if (!ShaderConfigManager::saveState(nextState, &err)) {
+        QMessageBox::warning(this, tr("Shader Settings"), err);
+    }
+    refreshShaderState();
+}
+
+void ShaderPackPage::configureSelectedShader()
+{
+    if (!m_instance || !m_model) {
+        return;
+    }
+    const QString selected = selectedShaderFileName();
+    const QString target = !selected.isEmpty() ? selected : m_shaderState.activePack;
+    if (target.isEmpty()) {
+        return;
+    }
+    ShaderProfileDialog dlg(m_model->dir().absolutePath(), target, m_instance->isRunning(), this);
+    dlg.exec();
 }

@@ -57,6 +57,7 @@
 
 #include "ui/widgets/IconLabel.h"
 #include "ui/widgets/UiAnimations.h"
+#include "ui/widgets/UiMotionEffects.h"
 
 #include "Application.h"
 #include "DesktopServices.h"
@@ -108,10 +109,12 @@ PageContainer::PageContainer(BasePageProvider* pageProvider, QString defaultId, 
     m_proxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
 
     m_pageList->setIconSize(QSize(pageIconSize, pageIconSize));
+    m_pageList->setSpacing(2);
     m_pageList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_pageList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_pageList->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
     m_pageList->setModel(m_proxyModel);
+    UiAnimations::installListActiveIndicator(m_pageList);
     connect(m_pageList->selectionModel(), &QItemSelectionModel::currentRowChanged, this, &PageContainer::currentChanged);
     m_pageStack->setStackingMode(QStackedLayout::StackOne);
     m_pageList->setFocus();
@@ -253,8 +256,8 @@ void PageContainer::showPage(int row)
     }
 
     if (!snapshot.isNull()) {
-        const int slideY = (previousRow < row) ? -7 : 7;
-        UiAnimations::TransitionOverlay::start(m_pageHost, snapshot, QPoint(0, slideY), 130);
+        const int slideY = (previousRow < row) ? -18 : 18;
+        UiAnimations::TransitionOverlay::start(m_pageHost, snapshot, QPoint(0, slideY), 210);
     }
 }
 

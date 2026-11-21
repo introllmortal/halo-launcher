@@ -202,6 +202,7 @@ class Application : public QApplication {
     QString updaterBinaryName();
 
     QUrl normalizeImportUrl(const QString& url);
+    void prepareForExit();
 
    signals:
     void updateAllowedChanged(bool status);

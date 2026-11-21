@@ -63,7 +63,6 @@
 #include "ui/pages/global/ExternalToolsPage.h"
 #include "ui/pages/global/JavaPage.h"
 #include "ui/pages/global/LanguagePage.h"
-#include "diagnostics/CrashAssistantTranslator.h"
 #include "ui/pages/global/LauncherPage.h"
 #include "ui/pages/global/MinecraftPage.h"
 #include "ui/pages/global/ProxyPage.h"
@@ -161,7 +160,13 @@
 #include <QStyleHints>
 #endif
 
+#include <QElapsedTimer>
+#include <QThreadPool>
+#include <atomic>
+#include <mutex>
+
 #include "console/Console.h"
+#include "net/DnsSrvLookup.h"
 
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
@@ -229,11 +234,42 @@ static QString ansiLogFormat = QStringLiteral(
 
 namespace {
 
+std::mutex& appLoggerMutex()
+{
+    // Intentionally immortal so un-drained background threads cannot lock a
+    // destroyed std::mutex during CRT exit.
+    static auto* mutex = new std::mutex();
+    return *mutex;
+}
+
+std::atomic<bool>& loggerShutDownFlag()
+{
+    static std::atomic<bool> shutDown{ false };
+    return shutDown;
+}
+
+void shutdownAppLogger(Application* app)
+{
+    const std::lock_guard<std::mutex> lock(appLoggerMutex());
+    loggerShutDownFlag().store(true, std::memory_order_release);
+    qInstallMessageHandler(nullptr);
+    if (app && app->logFile && app->logFile->isOpen()) {
+        app->logFile->flush();
+        app->logFile->close();
+    }
+}
+
 /** This is used so that we can output to the log file in addition to the CLI. */
 void appDebugOutput(QtMsgType type, const QMessageLogContext& context, const QString& msg)
 {
-    static std::mutex loggerMutex;
-    const std::lock_guard<std::mutex> lock(loggerMutex);  // synchronized, QFile logFile is not thread-safe
+    if (loggerShutDownFlag().load(std::memory_order_acquire)) {
+        return;
+    }
+    const std::lock_guard<std::mutex> lock(appLoggerMutex());
+    Application* app = qobject_cast<Application*>(QCoreApplication::instance());
+    if (loggerShutDownFlag().load(std::memory_order_acquire) || !app) {
+        return;
+    }
 
     if (isANSIColorConsole) {
         // ensure default is set for log file
@@ -241,13 +277,15 @@ void appDebugOutput(QtMsgType type, const QMessageLogContext& context, const QSt
     }
 
     QString out = qFormatLogMessage(type, context, msg);
-    if (APPLICATION->logModel) {
-        APPLICATION->logModel->append(MessageLevel::fromQtMsgType(type), out);
+    if (app->logModel) {
+        app->logModel->append(MessageLevel::fromQtMsgType(type), out);
     }
 
     out += QChar::LineFeed;
-    APPLICATION->logFile->write(out.toUtf8());
-    APPLICATION->logFile->flush();
+    if (app->logFile && app->logFile->isOpen()) {
+        app->logFile->write(out.toUtf8());
+        app->logFile->flush();
+    }
 
     if (isANSIColorConsole) {
         // format ansi for console;
@@ -526,6 +564,7 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
                                       .arg(dataPath));
             return;
         }
+        loggerShutDownFlag().store(false, std::memory_order_release);
         qInstallMessageHandler(appDebugOutput);
         qSetMessagePattern(defaultLogFormat);
 
@@ -940,6 +979,7 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
         }
 
         PixmapCache::setInstance(new PixmapCache(this));
+        PixmapCache::setCacheLimit(65536);
 
         qInfo() << "<> Settings loaded.";
     }
@@ -1040,8 +1080,6 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
 
     // load translations
     {
-        // Install CrashAssistantTranslator BEFORE TranslationsModel so Halo's .qm overlays keep LIFO priority.
-        CrashAssistantTranslator::install();
         m_translations.reset(new TranslationsModel("translations"));
         m_translations->downloadIndex();
         qInfo() << "Your language is" << m_translations->selectedLanguage();
@@ -1069,13 +1107,14 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
 #endif
 
     connect(this, &Application::aboutToQuit, [this]() {
+        Net::DnsSrvLookup::cancelAllPending();
         if (m_instances) {
             // save any remaining instance state
             m_instances->saveNow();
         }
-        if (logFile) {
+        const std::lock_guard<std::mutex> lock(appLoggerMutex());
+        if (logFile && logFile->isOpen()) {
             logFile->flush();
-            logFile->close();
         }
     });
 
@@ -1445,8 +1484,10 @@ void Application::showFatalErrorMessage(const QString& title, const QString& con
 
 Application::~Application()
 {
-    // Shut down logger by setting the logger function to nothing
-    qInstallMessageHandler(nullptr);
+    shutdownAppLogger(this);
+    if (m_peerInstance) {
+        m_peerInstance->shutdown();
+    }
 }
 
 void Application::messageReceived(const QByteArray& message)
@@ -2052,6 +2093,51 @@ void Application::triggerUpdateCheck()
         m_updater->checkForUpdates();
     } else {
         qDebug() << "Updater not available.";
+    }
+}
+
+void Application::prepareForExit()
+{
+    Net::DnsSrvLookup::cancelAllPending();
+
+    QThreadPool::globalInstance()->clear();
+    const QList<QThreadPool*> pools = findChildren<QThreadPool*>();
+
+    auto poolsDone = [&pools](int waitMs) {
+        bool drained = QThreadPool::globalInstance()->waitForDone(waitMs);
+        for (QThreadPool* pool : pools) {
+            if (pool && !pool->waitForDone(waitMs)) {
+                drained = false;
+            }
+        }
+        return drained;
+    };
+
+    bool allDrained = poolsDone(0);
+    if (!allDrained) {
+        QElapsedTimer timer;
+        timer.start();
+        constexpr qint64 kMaxDrainMs = 4000;
+        while (!allDrained && timer.elapsed() < kMaxDrainMs) {
+            allDrained = poolsDone(15);
+            if (!allDrained) {
+                QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
+            }
+        }
+    }
+
+    if (!allDrained) {
+        for (QThreadPool* pool : pools) {
+            if (pool && !pool->waitForDone(0)) {
+                pool->setParent(nullptr);
+            }
+        }
+    }
+
+    shutdownAppLogger(this);
+
+    if (m_peerInstance) {
+        m_peerInstance->shutdown();
     }
 }
 

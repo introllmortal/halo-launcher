@@ -63,7 +63,7 @@ void InstanceProxyModel::setRunningOnly(bool runningOnly)
 
 InstanceProxyModel::LoaderFilter InstanceProxyModel::detectLoaderFromComponentUids(const QSet<QString>& uids)
 {
-    if (uids.contains(QStringLiteral("net.neoforge"))) {
+    if (uids.contains(QStringLiteral("net.neoforged")) || uids.contains(QStringLiteral("net.neoforge"))) {
         return LoaderFilter::NeoForge;
     }
     if (uids.contains(QStringLiteral("net.minecraftforge"))) {
@@ -90,6 +90,7 @@ InstanceProxyModel::LoaderFilter InstanceProxyModel::detectLoader(const BaseInst
     const auto* profile = mcInst->getPackProfile();
     QSet<QString> uids;
     static const QString kKnownUids[] = {
+        QStringLiteral("net.neoforged"),
         QStringLiteral("net.neoforge"),
         QStringLiteral("net.minecraftforge"),
         QStringLiteral("net.fabricmc.fabric-loader"),

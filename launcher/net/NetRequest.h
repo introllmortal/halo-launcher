@@ -40,8 +40,9 @@
 #pragma once
 
 #include <QNetworkReply>
-#include <QUrl>
+#include <QPointer>
 #include <QTimer>
+#include <QUrl>
 #include <chrono>
 
 #include "HeaderProxy.h"
@@ -64,7 +65,7 @@ class NetRequest : public Task {
     Q_DECLARE_FLAGS(Options, Option)
 
    public:
-    ~NetRequest() override = default;
+    ~NetRequest() override;
     void addValidator(Validator* v);
     auto abort() -> bool override;
     auto canAbort() const -> bool override { return true; }
@@ -82,6 +83,7 @@ class NetRequest : public Task {
     QString errorString() const;
 
    private:
+    void releaseReplyDeferred();
     auto handleRedirect() -> bool;
     void handleAutoRetry(int64_t delay);
     virtual QNetworkReply* getReply(QNetworkRequest&) = 0;
@@ -107,8 +109,8 @@ class NetRequest : public Task {
 
     QNetworkAccessManager* m_network;
 
-    /// the network reply
-    std::unique_ptr<QNetworkReply> m_reply;
+    /// the network reply (parented to QNetworkAccessManager; deferred-deleted safely)
+    QPointer<QNetworkReply> m_reply;
     QByteArray m_errorResponse;
 
     /// source URL

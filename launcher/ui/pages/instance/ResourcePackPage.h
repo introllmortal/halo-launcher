@@ -45,10 +45,17 @@
 
 #include "minecraft/mod/ResourcePackFolderModel.h"
 
+class QPushButton;
+class QWidget;
+class ResourcePackOrderPanel;
+
 class ResourcePackPage : public ExternalResourcesPage {
     Q_OBJECT
    public:
     explicit ResourcePackPage(MinecraftInstance* instance, ResourcePackFolderModel* model, QWidget* parent = 0);
+
+    void openedImpl() override;
+    void retranslate() override;
 
     QString displayName() const override { return tr("Resource Packs"); }
     QIcon icon() const override { return QIcon::fromTheme("resourcepacks"); }
@@ -71,6 +78,13 @@ class ResourcePackPage : public ExternalResourcesPage {
     void changeResourcePackVersion();
 
    protected:
+    void setOrderViewActive(bool active);
+
     ResourcePackFolderModel* m_model;
     QPointer<ResourceDownload::ResourceDownloadDialog> m_downloadDialog;
+    QWidget* m_modeBar = nullptr;
+    QPushButton* m_filesModeBtn = nullptr;
+    QPushButton* m_orderModeBtn = nullptr;
+    ResourcePackOrderPanel* m_orderPanel = nullptr;
+    bool m_orderViewActive = false;
 };

@@ -20,18 +20,28 @@
 #include <LoggedProcess.h>
 #include <java/JavaChecker.h>
 #include <launch/LaunchStep.h>
-#include <QHostInfo>
+#include <QList>
+#include <QPointer>
+
+namespace Net {
+class DnsLookupToken;
+struct HostLookupResult;
+}
 
 class PrintServers : public LaunchStep {
     Q_OBJECT
    public:
     PrintServers(LaunchTask* parent, const QStringList& servers);
 
-    virtual void executeTask();
-    virtual bool canAbort() const;
+    void executeTask() override;
+    bool abort() override;
+    bool canAbort() const override;
 
    private:
-    void resolveServer(const QHostInfo& host_info);
+    void clearLookups();
+    void resolveServer(const QString& server, const Net::HostLookupResult& hostInfo);
+    QList<QPointer<Net::DnsLookupToken>> m_lookups;
     QMap<QString, QString> m_server_to_address;
     QStringList m_servers;
+    int m_pendingCount = 0;
 };

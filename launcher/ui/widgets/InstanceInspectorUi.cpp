@@ -23,6 +23,7 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QMenu>
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QStackedWidget>
@@ -30,6 +31,7 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include "Application.h"
 #include "BaseInstance.h"
 #include "ui/widgets/UiAnimations.h"
 
@@ -267,6 +269,24 @@ void InstanceInspector::buildDetailsPage()
         layout->addWidget(m_playButton);
     }
 
+    m_quickJoinButton = new QToolButton(detailsPage);
+    m_quickJoinButton->setObjectName(QStringLiteral("inspectorActionButton"));
+    m_quickJoinButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_quickJoinButton->setIconSize(QSize(14, 14));
+    m_quickJoinButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_quickJoinButton->setCursor(Qt::PointingHandCursor);
+    m_quickJoinButton->setFocusPolicy(Qt::NoFocus);
+    m_quickJoinButton->setPopupMode(QToolButton::MenuButtonPopup);
+    m_quickJoinMenu = new QMenu(m_quickJoinButton);
+    m_quickJoinButton->setMenu(m_quickJoinMenu);
+    connect(m_quickJoinButton, &QToolButton::clicked, this, [this]() {
+        if (m_instance && m_activeQuickJoin.has_value() && !m_instance->isRunning() && APPLICATION_DYN) {
+            APPLICATION->launch(m_instance, LaunchMode::Normal, m_activeQuickJoin->toMinecraftTarget());
+        }
+    });
+    m_quickJoinButton->hide();
+    layout->addWidget(m_quickJoinButton);
+
     // One-step Modpack Update & management buttons
     m_updatePackButton =
         makePanelPushButton(QStringLiteral("checkupdate"), QStringLiteral("inspectorUpdateButton"), nullptr, detailsPage);
@@ -278,11 +298,6 @@ void InstanceInspector::buildDetailsPage()
         makePanelPushButton(QStringLiteral("refresh"), QStringLiteral("inspectorActionButton"), nullptr, detailsPage);
     connect(m_rollbackButton, &QPushButton::clicked, this, &InstanceInspector::rollbackSnapshotRequested);
     layout->addWidget(m_rollbackButton);
-
-    m_checkModsButton =
-        makePanelPushButton(QStringLiteral("loadermods"), QStringLiteral("inspectorActionButton"), nullptr, detailsPage);
-    connect(m_checkModsButton, &QPushButton::clicked, this, &InstanceInspector::checkModUpdatesRequested);
-    layout->addWidget(m_checkModsButton);
 
     m_editButton = makePanelPushButton(QStringLiteral("settings"), QStringLiteral("inspectorActionButton"), m_actions.editInstance,
                                        detailsPage);
@@ -311,12 +326,20 @@ void InstanceInspector::buildDetailsPage()
         m_shareLogButton = makeGridButton(QStringLiteral("log"), nullptr, detailsPage);
         connect(m_shareLogButton, &QToolButton::clicked, this, &InstanceInspector::shareLogRequested);
 
+        m_diffModsButton = makeGridButton(QStringLiteral("checkupdate"), nullptr, detailsPage);
+        connect(m_diffModsButton, &QToolButton::clicked, this, &InstanceInspector::compareModsRequested);
+
+        m_cleanStorageButton = makeGridButton(QStringLiteral("delete"), nullptr, detailsPage);
+        connect(m_cleanStorageButton, &QToolButton::clicked, this, &InstanceInspector::cleanStorageRequested);
+
         grid->addWidget(m_folderButton, 0, 0);
         grid->addWidget(m_groupButton, 0, 1);
         grid->addWidget(m_copyButton, 1, 0);
         grid->addWidget(m_exportButton, 1, 1);
         grid->addWidget(m_shortcutButton, 2, 0);
         grid->addWidget(m_shareLogButton, 2, 1);
+        grid->addWidget(m_diffModsButton, 3, 0);
+        grid->addWidget(m_cleanStorageButton, 3, 1);
 
         layout->addLayout(grid);
     }

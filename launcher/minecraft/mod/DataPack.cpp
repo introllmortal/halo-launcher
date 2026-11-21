@@ -183,7 +183,7 @@ QPixmap DataPack::image(QSize size, Qt::AspectRatioMode mode) const
 {
     QPixmap cached_image;
     if (PixmapCache::instance().find(m_pack_image_cache_key.key, &cached_image)) {
-        if (size.isNull())
+        if (size.isNull() || cached_image.size() == size)
             return cached_image;
         return cached_image.scaled(size, mode, Qt::SmoothTransformation);
     }

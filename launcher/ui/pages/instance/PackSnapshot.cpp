@@ -20,17 +20,22 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QSaveFile>
+#include <QStringList>
 #include <algorithm>
+#include <utility>
 
 #include "Application.h"
 #include "BaseInstance.h"
 #include "FileSystem.h"
 #include "minecraft/MinecraftInstance.h"
 #include "minecraft/PackProfile.h"
+#include "minecraft/mod/ModBisectSession.h"
 
 namespace {
 
@@ -92,7 +97,7 @@ QString snapshotsRoot(const BaseInstance* instance)
 
 std::optional<Info> createSnapshot(BaseInstance* instance, const QString& targetVersionLabel, int maxToKeep)
 {
-    if (!instance || instance->instanceRoot().isEmpty()) {
+    if (!instance || instance->isRunning() || instance->instanceRoot().isEmpty() || ModBisectSession::hasActiveSession(instance)) {
         return std::nullopt;
     }
     instance->saveNow();
@@ -156,26 +161,13 @@ std::optional<Info> createSnapshot(BaseInstance* instance, const QString& target
         hasConfig = true;
     }
 
-    qint64 modCount = 0;
+    const QList<ModEntry> mods = scanCurrentMods(instance);
+    const qint64 modCount = mods.size();
     QJsonArray modsArray;
-    const QString modsPath = instance->modsRoot();
-    if (!modsPath.isEmpty() && QDir(modsPath).exists()) {
-        const QFileInfoList entries =
-            QDir(modsPath).entryInfoList(QDir::Files | QDir::NoDotAndDotDot, QDir::Name);
-        for (const QFileInfo& fi : entries) {
-            const QString name = fi.fileName();
-            const bool isJar = name.endsWith(QStringLiteral(".jar"), Qt::CaseInsensitive);
-            const bool isDisabled = name.endsWith(QStringLiteral(".jar.disabled"), Qt::CaseInsensitive);
-            if (!isJar && !isDisabled) {
-                continue;
-            }
-            QJsonObject entry;
-            entry.insert(QStringLiteral("fileName"), name);
-            entry.insert(QStringLiteral("size"), fi.size());
-            entry.insert(QStringLiteral("enabled"), isJar);
-            modsArray.append(entry);
-            ++modCount;
-        }
+    for (const ModEntry& mod : mods) {
+        modsArray.append(QJsonObject{ { QStringLiteral("fileName"), mod.fileName },
+                                      { QStringLiteral("size"), mod.size },
+                                      { QStringLiteral("enabled"), mod.enabled } });
     }
     if (!writeBytesAtomic(FS::PathCombine(snapDir, QStringLiteral("mods-manifest.json")),
                           QJsonDocument(modsArray).toJson(QJsonDocument::Compact))) {
@@ -288,7 +280,7 @@ bool captureFileBackup(const QString& destPath, FileBackup& backup)
 
 void rollbackBackups(const QList<FileBackup>& backups)
 {
-    for (int i = backups.size() - 1; i >= 0; --i) {
+    for (qsizetype i = backups.size() - 1; i >= 0; --i) {
         const FileBackup& b = backups.at(i);
         if (!b.modified) {
             continue;

@@ -30,6 +30,12 @@ jobs:
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
+      - name: Checkout release notes
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            .github/RELEASE_NOTES.md
+          sparse-checkout-cone-mode: false
       - name: Download artifacts
         uses: actions/download-artifact@v8
       - name: Grab and store version
@@ -38,13 +44,6 @@ jobs:
           echo "VERSION=$tag_name" >> $GITHUB_ENV
       - name: Package artifacts properly
         run: |
-          for f in HaloLauncher-Linux-Qt6-Portable*/HaloLauncher-portable.tar.gz; do
-            [ -e "$f" ] && mv "$f" "HaloLauncher-Linux-Portable-${{ env.VERSION }}.tar.gz"
-          done
-          for f in HaloLauncher-*.AppImage/HaloLauncher-*-x86_64.AppImage; do
-            [ -e "$f" ] && mv "$f" "HaloLauncher-Linux-${{ env.VERSION }}-x86_64.AppImage"
-          done
-
           for d in HaloLauncher-Windows-MSVC-Portable*; do
             [ -d "${d}" ] || continue
             (cd "${d}" && zip -r -9 "../HaloLauncher-Windows-MSVC-Portable-${{ env.VERSION }}.zip" *)
@@ -64,11 +63,10 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ github.ref_name }}
           name: Halo Launcher ${{ env.VERSION }}
+          body_path: .github/RELEASE_NOTES.md
           draft: false
           prerelease: false
           fail_on_unmatched_files: true
           files: |
-            HaloLauncher-Linux-${{ env.VERSION }}-x86_64.AppImage
-            HaloLauncher-Linux-Portable-${{ env.VERSION }}.tar.gz
             HaloLauncher-Windows-MSVC-Portable-${{ env.VERSION }}.zip
             HaloLauncher-Windows-MSVC-Setup-${{ env.VERSION }}.exe

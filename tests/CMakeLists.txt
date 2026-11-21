@@ -84,5 +84,19 @@ ecm_add_test(InstanceProxyModel_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VE
     TEST_NAME InstanceProxyModel)
 ecm_add_test(PackSnapshot_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
     TEST_NAME PackSnapshot)
+ecm_add_test(ModBisect_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
+    TEST_NAME ModBisect)
+ecm_add_test(ModBisectDependencies_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
+    TEST_NAME ModBisectDependencies)
+ecm_add_test(InstanceProfilePreset_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
+    TEST_NAME InstanceProfilePreset)
+ecm_add_test(InstanceStorageCleaner_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
+    TEST_NAME InstanceStorageCleaner)
 ecm_add_test(Updater_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
     TEST_NAME Updater)
+ecm_add_test(GameConfigManagers_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
+    TEST_NAME GameConfigManagers)
+ecm_add_test(GameGraphicsAdvisor_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
+    TEST_NAME GameGraphicsAdvisor)
+ecm_add_test(JavaAndAuthResilience_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
+    TEST_NAME JavaAndAuthResilience)

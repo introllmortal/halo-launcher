@@ -94,6 +94,67 @@ class CrashAnalyzerTest : public QObject {
         QCOMPARE(resFallback.category, CrashCategory::JavaVersion);
         QCOMPARE(resFallback.requiredJavaVersion, QStringLiteral("21"));
     }
+
+    void testSourceAndWhyPopulatedAcrossCategories()
+    {
+        const auto oom = CrashAnalyzer::analyze(nullptr, { "java.lang.OutOfMemoryError: Java heap space" }, {}, 1);
+        QVERIFY(!oom.sourceSummary.isEmpty());
+        QVERIFY(!oom.whySummary.isEmpty());
+
+        const auto cfg = CrashAnalyzer::analyze(
+            nullptr, { "com.electronwill.nightconfig.core.io.ParsingException: Not enough data available in sodium-options.toml" }, {}, 1);
+        QVERIFY(cfg.sourceSummary.contains(QStringLiteral("sodium-options.toml")));
+        QVERIFY(!cfg.whySummary.isEmpty());
+
+        const auto mixin = CrashAnalyzer::analyze(
+            nullptr,
+            { "Caused by: org.spongepowered.asm.mixin.injection.throwables.InjectionError: Critical injection failure: Callback handler "
+              "onTick in example_mod.mixins.json:TickMixin failed" },
+            {}, 1);
+        QCOMPARE(mixin.category, CrashCategory::ModConflict);
+        QVERIFY(mixin.sourceSummary.contains(QStringLiteral("example_mod")));
+        QVERIFY(mixin.whySummary.contains(QStringLiteral("Mixin")));
+
+        const auto dep = CrashAnalyzer::analyze(
+            nullptr,
+            { "Unsupported installed optional dependencies:\nMod ID: 'jei', Requested by: 'ftbxmodcompat', Expected range: '[19.0,)', "
+              "Actual version: '18.2'" },
+            {}, 1);
+        QCOMPARE(dep.category, CrashCategory::MissingDependency);
+        QVERIFY(dep.sourceSummary.contains(QStringLiteral("ftbxmodcompat")));
+        QVERIFY(dep.sourceSummary.contains(QStringLiteral("jei")));
+        QVERIFY(!dep.whySummary.isEmpty());
+
+        const auto noSuchMethod = CrashAnalyzer::analyze(
+            nullptr,
+            { "java.lang.NoSuchMethodError: 'void net.minecraft.world.level.Level.foo()'",
+              "Caused by: java.lang.NoSuchMethodError: 'void net.minecraft.world.level.Level.foo()'" },
+            {}, 1);
+        QCOMPARE(noSuchMethod.category, CrashCategory::Unknown);
+        QVERIFY(!noSuchMethod.sourceSummary.isEmpty());
+        QVERIFY(noSuchMethod.whySummary.contains(QStringLiteral("method or class")));
+
+        const auto dup = CrashAnalyzer::analyze(nullptr, { "Duplicate mod id 'create'" }, {}, 1);
+        QCOMPARE(dup.category, CrashCategory::DuplicateMods);
+        QVERIFY(dup.sourceSummary.contains(QStringLiteral("create")));
+        QVERIFY(!dup.whySummary.isEmpty());
+
+        const auto modLoad = CrashAnalyzer::analyze(nullptr, { "ModLoadingException: Mod 'flywheel' failed to load" }, {}, 1);
+        QCOMPARE(modLoad.category, CrashCategory::ModConflict);
+        QVERIFY(modLoad.sourceSummary.contains(QStringLiteral("flywheel")));
+        QVERIFY(modLoad.whySummary.contains(QStringLiteral("ModLoadingException")));
+
+        const auto shader = CrashAnalyzer::analyze(nullptr, { "Failed to compile fragment shader: gbuffers_terrain.fsh" }, {}, 1);
+        QCOMPARE(shader.category, CrashCategory::GraphicsDriver);
+        QVERIFY(!shader.sourceSummary.isEmpty());
+        QVERIFY(!shader.whySummary.isEmpty());
+
+        const auto ticking = CrashAnalyzer::analyze(
+            nullptr, {}, QStringLiteral("---- Minecraft Crash Report ----\nDescription: Ticking entity\n"), 1);
+        QCOMPARE(ticking.category, CrashCategory::Unknown);
+        QVERIFY(ticking.sourceSummary.contains(QStringLiteral("Ticking entity")));
+        QVERIFY(ticking.whySummary.contains(QStringLiteral("Ticking entity")));
+    }
 };
 
 QTEST_GUILESS_MAIN(CrashAnalyzerTest)

@@ -16,10 +16,15 @@
 #pragma once
 
 #include <QObjectPtr.h>
+#include <QPointer>
 #include <launch/LaunchStep.h>
-#include <QDnsLookup>
 
 #include "minecraft/launch/MinecraftTarget.h"
+
+namespace Net {
+class DnsLookupToken;
+struct SrvLookupResult;
+}
 
 class LookupServerAddress : public LaunchStep {
     Q_OBJECT
@@ -34,13 +39,12 @@ class LookupServerAddress : public LaunchStep {
     void setLookupAddress(const QString& lookupAddress);
     void setOutputAddressPtr(MinecraftTarget::Ptr output);
 
-   private slots:
-    void on_dnsLookupFinished();
-
    private:
+    void on_dnsLookupFinished(const Net::SrvLookupResult& result);
     void resolve(const QString& address, quint16 port);
 
-    QDnsLookup* m_dnsLookup;
+    QPointer<Net::DnsLookupToken> m_dnsLookup;
     QString m_lookupAddress;
+    QString m_serviceName;
     MinecraftTarget::Ptr m_output;
 };

@@ -46,18 +46,19 @@ class TransitionOverlay final : public QWidget {
     Q_OBJECT
 
    public:
-    static void start(QWidget* container, const QPixmap& previousSnapshot, const QPoint& slideOffset = QPoint(0, 6), int durationMs = 130);
+    static void start(QWidget* container, const QPixmap& previousSnapshot, const QPoint& slideOffset = QPoint(0, 18), int durationMs = 210);
 
    protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
 
    private:
-    explicit TransitionOverlay(QWidget* container, QPixmap snapshot, QPoint slideOffset, int durationMs);
+    explicit TransitionOverlay(QWidget* container, QPixmap snapshot, QPixmap incomingSnapshot, QPoint slideOffset, int durationMs);
     void finishImmediately();
 
     QPointer<QWidget> m_container;
     QPixmap m_snapshot;
+    QPixmap m_incomingSnapshot;
     QPoint m_slideOffset;
     QVariantAnimation* m_anim = nullptr;
     qreal m_progress = 0.0;

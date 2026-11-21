@@ -47,11 +47,6 @@ jobs:
             vcvars-arch: amd64
             qt-version: 6.10.2
 
-          - os: ubuntu-24.04
-            artifact-name: Linux
-            cmake-preset: linux
-            qt-version: 6.10.2
-
     runs-on: ${{ matrix.os }}
 
     defaults:

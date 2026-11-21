@@ -121,7 +121,21 @@ LocalPeer::LocalPeer(QObject* parent, const ApplicationId& appId) : QObject(pare
     lockFile->open(QIODevice::ReadWrite);
 }
 
-LocalPeer::~LocalPeer() {}
+LocalPeer::~LocalPeer()
+{
+    shutdown();
+}
+
+void LocalPeer::shutdown()
+{
+    if (server) {
+        server->close();
+        server.reset();
+    }
+    if (lockFile) {
+        lockFile.reset();
+    }
+}
 
 ApplicationId LocalPeer::applicationId() const
 {
@@ -130,6 +144,9 @@ ApplicationId LocalPeer::applicationId() const
 
 bool LocalPeer::isClient()
 {
+    if (!lockFile || !server)
+        return false;
+
     if (lockFile->isLocked())
         return false;
 
@@ -196,6 +213,9 @@ bool LocalPeer::sendMessage(const QByteArray& message, int timeout)
 
 void LocalPeer::receiveConnection()
 {
+    if (!server) {
+        return;
+    }
     QLocalSocket* socket = server->nextPendingConnection();
     if (!socket) {
         return;

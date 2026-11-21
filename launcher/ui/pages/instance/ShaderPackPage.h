@@ -39,13 +39,21 @@
 
 #include <QPointer>
 #include "ExternalResourcesPage.h"
+#include "minecraft/mod/ShaderConfigManager.h"
 #include "ui/dialogs/ResourceDownloadDialog.h"
+
+class QCheckBox;
+class QLabel;
+class QPushButton;
+class QWidget;
 
 class ShaderPackPage : public ExternalResourcesPage {
     Q_OBJECT
    public:
     explicit ShaderPackPage(MinecraftInstance* instance, ShaderPackFolderModel* model, QWidget* parent = nullptr);
     ~ShaderPackPage() override = default;
+
+    void openedImpl() override;
 
     QString displayName() const override { return tr("Shader Packs"); }
     QIcon icon() const override { return QIcon::fromTheme("shaderpacks"); }
@@ -60,8 +68,20 @@ class ShaderPackPage : public ExternalResourcesPage {
     void updateShaderPacks();
     void deleteShaderPackMetadata();
     void changeShaderPackVersion();
+    void setSelectedShaderActive();
+    void configureSelectedShader();
+    void toggleShadersEnabled(bool enabled);
 
    private:
+    void refreshShaderState();
+    QString selectedShaderFileName() const;
+
     ShaderPackFolderModel* m_model;
     QPointer<ResourceDownload::ShaderPackDownloadDialog> m_downloadDialog;
+    ShaderConfigManager::State m_shaderState;
+    QWidget* m_shaderBar = nullptr;
+    QLabel* m_shaderStatusLabel = nullptr;
+    QCheckBox* m_enableShadersCheck = nullptr;
+    QPushButton* m_setActiveBtn = nullptr;
+    QPushButton* m_configureBtn = nullptr;
 };

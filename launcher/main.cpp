@@ -71,7 +71,9 @@ int main(int argc, char* argv[])
             Q_INIT_RESOURCE(flat);
             Q_INIT_RESOURCE(flat_white);
 
-            return app.exec();
+            const int exitCode = app.exec();
+            app.prepareForExit();
+            return exitCode;
         }
         case Application::Failed:
             return 1;

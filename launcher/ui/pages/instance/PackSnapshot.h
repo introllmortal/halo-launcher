@@ -39,6 +39,44 @@ struct Info {
     bool hasConfig = false;
 };
 
+struct ModEntry {
+    QString fileName;
+    qint64 size = 0;
+    bool enabled = true;
+};
+
+enum class DiffKind {
+    Added,
+    Removed,
+    Enabled,
+    Disabled,
+};
+
+struct ModDiffEntry {
+    DiffKind kind = DiffKind::Added;
+    QString baseKey;
+    QString leftFileName;
+    QString rightFileName;
+    qint64 leftSize = 0;
+    qint64 rightSize = 0;
+};
+
+struct SnapshotDiff {
+    QString leftLabel;
+    QString rightLabel;
+    QString leftPackVersion;
+    QString rightPackVersion;
+    QList<ModDiffEntry> modChanges;
+    int totalLeftMods = 0;
+    int totalRightMods = 0;
+
+    int addedCount() const;
+    int removedCount() const;
+    int toggledCount() const;
+    bool isEmpty() const;
+    QString toMarkdown() const;
+};
+
 /// Returns the root folder storing snapshots for an instance.
 QString snapshotsRoot(const BaseInstance* instance);
 
@@ -58,5 +96,23 @@ bool restoreSnapshot(BaseInstance* instance, const Info& snapshot);
 
 /// Restores the most recent snapshot for the instance.
 bool restoreLatestSnapshot(BaseInstance* instance);
+
+/// Reads the mod manifest from a snapshot directory (empty if missing or malformed).
+QList<ModEntry> readModsManifest(const Info& snapshot);
+
+/// Scans top-level .jar and .jar.disabled files in an instance's mods directory.
+QList<ModEntry> scanCurrentMods(const BaseInstance* instance);
+
+/// Computes a deterministic mod diff matching entries by canonical stem ignoring trailing .disabled.
+SnapshotDiff diffModLists(const QList<ModEntry>& left,
+                          const QList<ModEntry>& right,
+                          const QString& leftLabel = {},
+                          const QString& rightLabel = {});
+
+/// Compares a saved snapshot (left) against the instance's current mods (right).
+SnapshotDiff diffSnapshotToCurrent(const BaseInstance* instance, const Info& snapshot);
+
+/// Compares two instances' current mods (left vs right).
+SnapshotDiff diffInstances(const BaseInstance* left, const BaseInstance* right);
 
 }  // namespace PackSnapshot

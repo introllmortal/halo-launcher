@@ -57,30 +57,91 @@
 #include "tasks/SequentialTask.h"
 
 AutoInstallJava::AutoInstallJava(LaunchTask* parent)
-    : LaunchStep(parent), m_instance(m_parent->instance()), m_supported_arch(SysInfo::getSupportedJavaArchitecture()) {};
+    : LaunchStep(parent), m_instance(m_parent->instance()), m_supported_arch(SysInfo::getSupportedJavaArchitecture()) {}
+
+bool AutoInstallJava::shouldSkipAutoJava(bool autoSwitchEnabled,
+                                         bool overrideLocation,
+                                         bool isAutomaticJava,
+                                         bool javaPathExists,
+                                         const QString& currentJavaVersion,
+                                         const QList<int>& compatibleMajors)
+{
+    if (!autoSwitchEnabled) {
+        return true;
+    }
+    if (overrideLocation && !isAutomaticJava) {
+        return true;  // User explicitly configured a custom Java path
+    }
+    if (!overrideLocation || !javaPathExists) {
+        return false;
+    }
+    // Previously auto-selected Java must still match the instance's current compatible majors.
+    if (compatibleMajors.isEmpty()) {
+        return true;
+    }
+    const JavaVersion currentVer(currentJavaVersion);
+    return currentVer.major() > 0 && compatibleMajors.contains(currentVer.major());
+}
+
+JavaInstallPtr AutoInstallJava::selectBestLocalJava(const QList<BaseVersion::Ptr>& javas, const QList<int>& compatibleMajors)
+{
+    if (compatibleMajors.isEmpty()) {
+        return nullptr;
+    }
+    JavaInstallPtr fallback32;
+    for (int preferredMajor : compatibleMajors) {
+        JavaInstallPtr best64;
+        for (const auto& base : javas) {
+            auto java = std::dynamic_pointer_cast<JavaInstall>(base);
+            if (!java || java->id.major() != preferredMajor) {
+                continue;
+            }
+            if (java->is_64bit) {
+                if (!best64 || java->id > best64->id) {
+                    best64 = java;
+                }
+            } else if (!fallback32 || java->id > fallback32->id) {
+                fallback32 = java;
+            }
+        }
+        if (best64) {
+            return best64;
+        }
+    }
+    return fallback32;
+}
 
 void AutoInstallJava::executeTask()
 {
     auto settings = m_instance->settings();
-    if (!APPLICATION->settings()->get("AutomaticJavaSwitch").toBool() ||
-        (settings->get("OverrideJavaLocation").toBool() && QFileInfo::exists(settings->get("JavaPath").toString()))) {
+    auto packProfile = m_instance->getPackProfile();
+    const auto compatibleMajors = packProfile->getProfile()->getCompatibleJavaMajors();
+    const bool autoSwitch = APPLICATION->settings()->get("AutomaticJavaSwitch").toBool();
+    const bool overrideLoc = settings->get("OverrideJavaLocation").toBool();
+    const bool isAutoJava = settings->get("AutomaticJava").toBool();
+    const bool pathExists = QFileInfo::exists(settings->get("JavaPath").toString());
+    const QString currentVer = settings->get("JavaVersion").toString();
+
+    if (shouldSkipAutoJava(autoSwitch, overrideLoc, isAutoJava, pathExists, currentVer, compatibleMajors)) {
         emitSucceeded();
         return;
     }
-    auto packProfile = m_instance->getPackProfile();
     if (!APPLICATION->settings()->get("AutomaticJavaDownload").toBool()) {
         auto javas = APPLICATION->javalist();
         m_current_task = javas->getLoadTask();
         connect(m_current_task.get(), &Task::finished, this, [this, javas, packProfile] {
-            for (auto i = 0; i < javas->count(); i++) {
-                auto java = std::dynamic_pointer_cast<JavaInstall>(javas->at(i));
-                if (java && packProfile->getProfile()->getCompatibleJavaMajors().contains(java->id.major())) {
-                    if (!java->is_64bit) {
-                        emit logLine(tr("The automatic Java mechanism detected a 32-bit installation of Java."), MessageLevel::Launcher);
-                    }
-                    setJavaPath(java->path);
-                    return;
+            QList<BaseVersion::Ptr> list;
+            list.reserve(javas->count());
+            for (int i = 0; i < javas->count(); ++i) {
+                list.append(javas->at(i));
+            }
+            const auto majors = packProfile->getProfile()->getCompatibleJavaMajors();
+            if (auto java = selectBestLocalJava(list, majors)) {
+                if (!java->is_64bit) {
+                    emit logLine(tr("The automatic Java mechanism detected a 32-bit installation of Java."), MessageLevel::Launcher);
                 }
+                setJavaPath(java->path);
+                return;
             }
             emit logLine(tr("No compatible Java version was found. Using the default one."), MessageLevel::Warning);
             emitSucceeded();

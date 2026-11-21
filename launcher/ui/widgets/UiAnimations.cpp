@@ -300,11 +300,20 @@ void TransitionOverlay::start(QWidget* container, const QPixmap& previousSnapsho
         return;
     }
 
-    new TransitionOverlay(container, previousSnapshot, slideOffset, durationMs);
+    const QPixmap incomingSnapshot = container->grab();
+    new TransitionOverlay(container, previousSnapshot, incomingSnapshot, slideOffset, durationMs);
 }
 
-TransitionOverlay::TransitionOverlay(QWidget* container, QPixmap snapshot, QPoint slideOffset, int durationMs)
-    : QWidget(container), m_container(container), m_snapshot(std::move(snapshot)), m_slideOffset(slideOffset)
+TransitionOverlay::TransitionOverlay(QWidget* container,
+                                     QPixmap snapshot,
+                                     QPixmap incomingSnapshot,
+                                     QPoint slideOffset,
+                                     int durationMs)
+    : QWidget(container)
+    , m_container(container)
+    , m_snapshot(std::move(snapshot))
+    , m_incomingSnapshot(std::move(incomingSnapshot))
+    , m_slideOffset(slideOffset)
 {
     setObjectName(kOverlayObjectName);
     setAttribute(Qt::WA_TransparentForMouseEvents, true);
@@ -316,7 +325,7 @@ TransitionOverlay::TransitionOverlay(QWidget* container, QPixmap snapshot, QPoin
     m_anim->setDuration(durationMs);
     m_anim->setStartValue(0.0);
     m_anim->setEndValue(1.0);
-    m_anim->setEasingCurve(QEasingCurve::OutCubic);
+    m_anim->setEasingCurve(QEasingCurve::OutQuart);
 
     connect(m_anim, &QVariantAnimation::valueChanged, this, [this](const QVariant& value) {
         m_progress = value.toReal();
@@ -345,9 +354,25 @@ void TransitionOverlay::paintEvent(QPaintEvent*)
 
     QPainter painter(this);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-    painter.setOpacity(qBound(0.0, 1.0 - m_progress, 1.0));
-    const QPointF offset(static_cast<qreal>(m_slideOffset.x()) * m_progress, static_cast<qreal>(m_slideOffset.y()) * m_progress);
-    painter.drawPixmap(rect().translated(offset.toPoint()), m_snapshot);
+
+    if (m_container) {
+        painter.fillRect(rect(), m_container->palette().window());
+    }
+
+    const qreal outOpacity = qBound(0.0, 1.0 - m_progress, 1.0);
+    if (outOpacity > 0.005) {
+        painter.setOpacity(outOpacity);
+        const QPointF outOffset(static_cast<qreal>(m_slideOffset.x()) * m_progress, static_cast<qreal>(m_slideOffset.y()) * m_progress);
+        painter.drawPixmap(rect().translated(outOffset.toPoint()), m_snapshot);
+    }
+
+    if (!m_incomingSnapshot.isNull()) {
+        const qreal inOpacity = qBound(0.0, m_progress, 1.0);
+        painter.setOpacity(inOpacity);
+        const qreal remain = 1.0 - m_progress;
+        const QPointF inOffset(-static_cast<qreal>(m_slideOffset.x()) * remain, -static_cast<qreal>(m_slideOffset.y()) * remain);
+        painter.drawPixmap(rect().translated(inOffset.toPoint()), m_incomingSnapshot);
+    }
 }
 
 void TransitionOverlay::finishImmediately()

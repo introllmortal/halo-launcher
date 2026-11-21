@@ -1,10 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-only
+/*
+ *  Halo Launcher - Minecraft Launcher
+ *  Copyright (C) 2026 introllmortal <introllmortal@users.noreply.github.com>
+ *
+ *  This program is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, version 3.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 #pragma once
 
 #include <QString>
 #include <QStringList>
-#include <QRegularExpression>
-#include <memory>
 
 class BaseInstance;
 
@@ -34,6 +48,8 @@ struct DiagnosisResult {
     CrashCategory category = CrashCategory::Unknown;
     RecommendedFix fixAction = RecommendedFix::None;
     QString title;
+    QString sourceSummary;
+    QString whySummary;
     QString description;
     QString solutionText;
     QString actionButtonText;
@@ -51,10 +67,13 @@ struct DiagnosisResult {
 };
 
 class CrashAnalyzer {
-public:
-    static DiagnosisResult analyze(BaseInstance* instance, const QStringList& logLines, const QString& crashReportContent, int exitCode);
+   public:
+    static DiagnosisResult analyze(BaseInstance* instance,
+                                   const QStringList& logLines,
+                                   const QString& crashReportContent,
+                                   int exitCode);
 
-private:
+   private:
     static DiagnosisResult detectOutOfMemory(const QString& fullText, int exitCode, BaseInstance* instance);
     static DiagnosisResult detectJavaVersionMismatch(const QString& fullText, BaseInstance* instance);
     static DiagnosisResult detectDuplicateMods(const QString& fullText, BaseInstance* instance);

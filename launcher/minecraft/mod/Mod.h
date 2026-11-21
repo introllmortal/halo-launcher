@@ -83,6 +83,12 @@ class Mod : public Resource {
     QString iconPath() const { return m_local_details.icon_file; }
     /** Gets the icon of the mod, converted to a QPixmap for drawing, and scaled to size. */
     QPixmap icon(QSize size, Qt::AspectRatioMode mode = Qt::AspectRatioMode::IgnoreAspectRatio) const;
+    /** Non-blocking icon lookup from PixmapCache; returns null pixmap on miss. */
+    QPixmap cachedIcon(QSize size, Qt::AspectRatioMode mode = Qt::AspectRatioMode::IgnoreAspectRatio) const;
+    /** Returns true if an icon path is present and needs background loading/reloading. */
+    bool needsIconLoad() const;
+    /** Marks an icon load attempt so invalid/unreadable icons are not retried every paint. */
+    void markIconLoadAttempted() const;
     /** Thread-safe. */
     QPixmap setIcon(QImage new_image) const;
 
@@ -110,6 +116,11 @@ class Mod : public Resource {
         bool wasEverUsed = false;
         bool wasReadAttempt = false;
     } mutable m_packImageCacheKey;
+
+    mutable QPixmap m_cachedScaledIcon;
+    mutable QPixmapCache::Key m_cachedScaledKey;
+    mutable QSize m_cachedScaledSize;
+    mutable Qt::AspectRatioMode m_cachedScaledMode = Qt::AspectRatioMode::IgnoreAspectRatio;
 
     int m_requiredByCount = 0;
     int m_requiresCount = 0;

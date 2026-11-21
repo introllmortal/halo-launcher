@@ -53,14 +53,18 @@ set(CORE_SOURCES
     # Crash Diagnostics
     diagnostics/CrashAnalyzer.h
     diagnostics/CrashAnalyzer.cpp
-    diagnostics/CrashAssistantTranslator.h
-    diagnostics/CrashAssistantTranslator.cpp
+    diagnostics/CrashAnalyzerLookup.cpp
+    diagnostics/CrashAnalyzerDetectors.cpp
+    diagnostics/CrashAnalyzerGpu.cpp
     diagnostics/GpuSanityChecker.h
     diagnostics/GpuSanityChecker.cpp
     diagnostics/ProcessMemory.h
     diagnostics/ProcessMemory.cpp
     diagnostics/LaunchPreflightCheck.h
     diagnostics/LaunchPreflightCheck.cpp
+    diagnostics/InstanceStorageCleaner.h
+    diagnostics/InstanceStorageCleaner.cpp
+    diagnostics/InstanceWorldBackup.cpp
 
     # Resource downloading task
     ResourceDownloadTask.h
@@ -129,6 +133,8 @@ set(NET_SOURCES
     # network stuffs
     net/ByteArraySink.h
     net/ChecksumValidator.h
+    net/DnsSrvLookup.cpp
+    net/DnsSrvLookup.h
     net/Download.cpp
     net/Download.h
     net/DummySink.h
@@ -235,6 +241,7 @@ set(MINECRAFT_SOURCES
     minecraft/auth/AccountData.cpp
     minecraft/auth/AccountData.h
     minecraft/auth/AccountList.cpp
+    minecraft/auth/AccountListPersistence.cpp
     minecraft/auth/AccountList.h
     minecraft/auth/AuthSession.cpp
     minecraft/auth/AuthSession.h
@@ -311,6 +318,10 @@ set(MINECRAFT_SOURCES
     minecraft/launch/AutoInstallJava.h
 
     minecraft/GradleSpecifier.h
+    minecraft/GameOptionsFile.h
+    minecraft/GameOptionsFile.cpp
+    minecraft/GameGraphicsAdvisor.h
+    minecraft/GameGraphicsAdvisor.cpp
     minecraft/MinecraftInstance.cpp
     minecraft/MinecraftInstance.h
     minecraft/LaunchProfile.cpp
@@ -352,9 +363,16 @@ set(MINECRAFT_SOURCES
     minecraft/mod/MetadataHandler.h
     minecraft/mod/Mod.h
     minecraft/mod/Mod.cpp
+    minecraft/mod/ModBisectGraph.h
+    minecraft/mod/ModBisectGraph.cpp
+    minecraft/mod/ModBisectSession.h
+    minecraft/mod/ModBisectSession.cpp
+    minecraft/mod/ModBisectStore.h
+    minecraft/mod/ModBisectStore.cpp
     minecraft/mod/ModDetails.h
     minecraft/mod/ModFolderModel.h
     minecraft/mod/ModFolderModel.cpp
+    minecraft/mod/ModFolderModelDeps.cpp
     minecraft/mod/Resource.h
     minecraft/mod/Resource.cpp
     minecraft/mod/ResourceFolderModel.h
@@ -377,9 +395,17 @@ set(MINECRAFT_SOURCES
     minecraft/mod/TexturePackFolderModel.cpp
     minecraft/mod/ShaderPackFolderModel.h
     minecraft/mod/ShaderPackFolderModel.cpp
+    minecraft/mod/ResourcePackOrderModel.h
+    minecraft/mod/ResourcePackOrderModel.cpp
+    minecraft/mod/ShaderConfigManager.h
+    minecraft/mod/ShaderConfigManager.cpp
+    minecraft/mod/GraphicsModConfigManager.h
+    minecraft/mod/GraphicsModConfigManager.cpp
     minecraft/mod/tasks/ResourceFolderLoadTask.h
     minecraft/mod/tasks/ResourceFolderLoadTask.cpp
     minecraft/mod/tasks/LocalModParseTask.h
+    minecraft/mod/tasks/LocalModForgeParsers.cpp
+    minecraft/mod/tasks/LocalModMetadataParsers.cpp
     minecraft/mod/tasks/LocalModParseTask.cpp
     minecraft/mod/tasks/LocalResourceUpdateTask.h
     minecraft/mod/tasks/LocalResourceUpdateTask.cpp
@@ -484,7 +510,9 @@ set(JAVA_SOURCES
 
 set(TRANSLATIONS_SOURCES
     translations/TranslationsModel.h
+    translations/TranslationsModel_p.h
     translations/TranslationsModel.cpp
+    translations/TranslationsModelNetwork.cpp
     translations/POTranslator.h
     translations/POTranslator.cpp
 )
@@ -949,22 +977,35 @@ SET(LAUNCHER_SOURCES
     ui/pages/instance/ManagedPackUpdater.cpp
     ui/pages/instance/ManagedPackUpdater.h
     ui/pages/instance/PackSnapshot.cpp
+    ui/pages/instance/PackSnapshotDiff.cpp
     ui/pages/instance/PackSnapshot.h
+    ui/pages/instance/InstanceProfilePreset.cpp
+    ui/pages/instance/InstanceProfilePreset.h
     ui/pages/instance/DataPackPage.h
     ui/pages/instance/DataPackPage.cpp
     ui/pages/instance/TexturePackPage.h
     ui/pages/instance/TexturePackPage.cpp
     ui/pages/instance/ResourcePackPage.h
     ui/pages/instance/ResourcePackPage.cpp
+    ui/pages/instance/ResourcePackOrderPanel.h
+    ui/pages/instance/ResourcePackOrderPanel.cpp
     ui/pages/instance/ShaderPackPage.h
     ui/pages/instance/ShaderPackPage.cpp
+    ui/pages/instance/ShaderProfileDialog.h
+    ui/pages/instance/ShaderProfileDialog.cpp
     ui/pages/instance/ModFolderPage.cpp
     ui/pages/instance/ModFolderPage.h
+    ui/pages/instance/ModFolderHaloTools.cpp
+    ui/pages/instance/ModFolderHaloTools.h
     ui/pages/instance/NotesPage.cpp
     ui/pages/instance/NotesPage.h
     ui/pages/instance/LogPage.cpp
     ui/pages/instance/LogPage.h
     ui/pages/instance/InstanceSettingsPage.h
+    ui/pages/instance/GameOptionsPage.h
+    ui/pages/instance/GameOptionsPage.cpp
+    ui/pages/instance/GameOptionsBasicTab.cpp
+    ui/pages/instance/GameOptionsSodiumAndMods.cpp
     ui/pages/instance/ScreenshotsPage.cpp
     ui/pages/instance/ScreenshotsPage.h
     ui/pages/instance/OtherLogsPage.cpp
@@ -1092,6 +1133,10 @@ SET(LAUNCHER_SOURCES
     ui/dialogs/LaunchPreflightDialog.h
     ui/dialogs/ReleaseNotesDialog.cpp
     ui/dialogs/ReleaseNotesDialog.h
+    ui/dialogs/ModDiffDialog.cpp
+    ui/dialogs/ModDiffDialog.h
+    ui/dialogs/StorageCleanerDialog.cpp
+    ui/dialogs/StorageCleanerDialog.h
     updater/prismupdater/GitHubRelease.cpp
     updater/prismupdater/GitHubRelease.h
     updater/prismupdater/UpdaterArtifacts.cpp
@@ -1210,8 +1255,12 @@ SET(LAUNCHER_SOURCES
     ui/widgets/InstanceInspector.h
     ui/widgets/InstanceInspector.cpp
     ui/widgets/InstanceInspectorUi.cpp
+    ui/widgets/QuickJoinHelper.h
+    ui/widgets/QuickJoinHelper.cpp
     ui/widgets/UiAnimations.h
     ui/widgets/UiAnimations.cpp
+    ui/widgets/UiMotionEffects.h
+    ui/widgets/UiMotionEffects.cpp
     ui/widgets/AppearanceWidget.h
     ui/widgets/AppearanceWidget.cpp
     ui/widgets/MinecraftSettingsWidget.h
@@ -1271,11 +1320,18 @@ endif()
 qt_add_translation(HALO_QM_FILES
     translations/halo_ui_ru.ts
     translations/halo_dialogs_ru.ts
+    translations/halo_tools_ru.ts
+    translations/halo_modtools_ru.ts
+    translations/halo_packs_ru.ts
+    translations/halo_game_config_ru.ts
+    translations/halo_shaders_ru.ts
+    translations/halo_crash_ru.ts
+    translations/halo_crash_detectors_ru.ts
 )
 set_source_files_properties(${HALO_QM_FILES} PROPERTIES GENERATED TRUE)
 set(HALO_TRANSLATIONS_QRC "${CMAKE_CURRENT_BINARY_DIR}/halo_translations.qrc")
 file(WRITE "${HALO_TRANSLATIONS_QRC}"
-    "<RCC>\n  <qresource prefix=\"/i18n\">\n    <file alias=\"halo_ui_ru.qm\">${CMAKE_CURRENT_BINARY_DIR}/halo_ui_ru.qm</file>\n    <file alias=\"halo_dialogs_ru.qm\">${CMAKE_CURRENT_BINARY_DIR}/halo_dialogs_ru.qm</file>\n  </qresource>\n</RCC>\n")
+    "<RCC>\n  <qresource prefix=\"/i18n\">\n    <file alias=\"halo_ui_ru.qm\">${CMAKE_CURRENT_BINARY_DIR}/halo_ui_ru.qm</file>\n    <file alias=\"halo_dialogs_ru.qm\">${CMAKE_CURRENT_BINARY_DIR}/halo_dialogs_ru.qm</file>\n    <file alias=\"halo_tools_ru.qm\">${CMAKE_CURRENT_BINARY_DIR}/halo_tools_ru.qm</file>\n    <file alias=\"halo_modtools_ru.qm\">${CMAKE_CURRENT_BINARY_DIR}/halo_modtools_ru.qm</file>\n    <file alias=\"halo_packs_ru.qm\">${CMAKE_CURRENT_BINARY_DIR}/halo_packs_ru.qm</file>\n    <file alias=\"halo_game_config_ru.qm\">${CMAKE_CURRENT_BINARY_DIR}/halo_game_config_ru.qm</file>\n    <file alias=\"halo_shaders_ru.qm\">${CMAKE_CURRENT_BINARY_DIR}/halo_shaders_ru.qm</file>\n    <file alias=\"halo_crash_ru.qm\">${CMAKE_CURRENT_BINARY_DIR}/halo_crash_ru.qm</file>\n    <file alias=\"halo_crash_detectors_ru.qm\">${CMAKE_CURRENT_BINARY_DIR}/halo_crash_detectors_ru.qm</file>\n  </qresource>\n</RCC>\n")
 set_source_files_properties("${HALO_TRANSLATIONS_QRC}" PROPERTIES OBJECT_DEPENDS "${HALO_QM_FILES}")
 
 qt_add_resources(LAUNCHER_RESOURCES
@@ -1361,6 +1417,8 @@ endif()
 if(WIN32)
     target_link_libraries(Launcher_logic
         dxgi
+        Dnsapi
+        Ws2_32
     )
 endif()
 

@@ -42,7 +42,9 @@
 #include "minecraft/PackProfile.h"
 #include "ui/pages/instance/ManagedPackUpdater.h"
 #include "ui/pages/instance/PackSnapshot.h"
+#include "ui/pages/instance/ServerPingTask.h"
 #include "ui/widgets/UiAnimations.h"
+#include "ui/widgets/UiMotionEffects.h"
 
 namespace {
 QString detectLoaderSummary(MinecraftInstance* mcInst)
@@ -61,6 +63,7 @@ QString detectLoaderSummary(MinecraftInstance* mcInst)
         const char* name;
     };
     static constexpr LoaderEntry kLoaders[] = {
+        { "net.neoforged", "NeoForge" },
         { "net.neoforge", "NeoForge" },
         { "net.minecraftforge", "Forge" },
         { "net.fabricmc.fabric-loader", "Fabric" },
@@ -101,6 +104,11 @@ void InstanceInspector::setInstance(BaseInstance* instance, const QIcon& icon)
 
     m_instance = instance;
     if (!instance) {
+        m_pingInstanceId.clear();
+        m_pingAddressKey.clear();
+        m_lastPingMs = 0;
+        m_lastPingPlayers.reset();
+        m_quickJoinPingTask = nullptr;
         if (m_sessionTimer) {
             m_sessionTimer->stop();
         }
@@ -126,6 +134,7 @@ void InstanceInspector::setInstance(BaseInstance* instance, const QIcon& icon)
     updatePinButtonState();
     updateMetadata(instance, animateVisibility);
     updatePlayButtonState();
+    updateQuickJoinState(animateVisibility);
     syncSessionCardVisibility(animateVisibility);
 
     if (!snapshot.isNull()) {
@@ -178,20 +187,6 @@ void InstanceInspector::updateMetadata(BaseInstance* instance, bool animateVisib
         UiAnimations::animateVisibleHeight(m_rollbackButton, showRollback, animateVisibility ? 160 : 0);
     }
 
-    if (m_checkModsButton) {
-        auto* mcInst = dynamic_cast<MinecraftInstance*>(instance);
-        bool showCheckMods = false;
-        if (mcInst && mcInst->canEdit() && !ManagedPackUpdater::supportsOneStepUpdate(instance)) {
-            const bool hasLoader = mcInst->getPackProfile() && mcInst->getPackProfile()->getModLoaders().has_value();
-            const QDir modsDir(mcInst->modsRoot());
-            const bool hasModJars =
-                modsDir.exists() &&
-                !modsDir.entryList({ QStringLiteral("*.jar"), QStringLiteral("*.jar.disabled") }, QDir::Files).isEmpty();
-            showCheckMods = hasLoader && hasModJars;
-        }
-        UiAnimations::animateVisibleHeight(m_checkModsButton, showCheckMods, animateVisibility ? 160 : 0);
-    }
-
     QStringList timeParts;
     if (instance->totalTimePlayed() > 0) {
         const bool showWithoutDays = APPLICATION_DYN ? APPLICATION_DYN->settings()->get("ShowGameTimeWithoutDays").toBool() : false;
@@ -224,6 +219,7 @@ void InstanceInspector::updatePlayButtonState()
     m_playButton->setProperty("running", running);
     m_playButton->style()->unpolish(m_playButton);
     m_playButton->style()->polish(m_playButton);
+    UiAnimations::setButtonBusyShimmer(m_playButton, running);
 
     if (running) {
         m_playButton->setText(tr("Stop"));
@@ -262,10 +258,6 @@ void InstanceInspector::retranslateUi()
     if (m_rollbackButton) {
         m_rollbackButton->setText(tr("Rollback Update"));
     }
-    if (m_checkModsButton) {
-        m_checkModsButton->setText(tr("Check Mod Updates"));
-        m_checkModsButton->setToolTip(tr("Open Mods tab and check Modrinth/CurseForge updates"));
-    }
     m_editButton->setText(tr("Edit & Mods"));
     m_folderButton->setText(tr("Folder"));
     m_groupButton->setText(tr("Group"));
@@ -274,14 +266,129 @@ void InstanceInspector::retranslateUi()
     m_shortcutButton->setText(tr("Shortcut"));
     m_shareLogButton->setText(tr("Share Log"));
     m_shareLogButton->setToolTip(tr("Upload latest log to mclo.gs"));
+    if (m_diffModsButton) {
+        m_diffModsButton->setText(tr("Mod Diff"));
+        m_diffModsButton->setToolTip(tr("Compare mods with a snapshot or another instance"));
+    }
+    if (m_cleanStorageButton) {
+        m_cleanStorageButton->setText(tr("Cleanup"));
+        m_cleanStorageButton->setToolTip(tr("Scan and clean logs, caches, and old snapshots"));
+    }
     m_deleteButton->setText(tr("Delete Instance"));
 
     if (m_instance) {
         updatePinButtonState();
         updateMetadata(m_instance, false);
+        if (m_quickJoinButton && m_activeQuickJoin.has_value()) {
+            const auto& active = *m_activeQuickJoin;
+            if (active.kind == QuickJoinHelper::Target::Kind::Server && m_lastPingPlayers.has_value() && *m_lastPingPlayers >= 0) {
+                m_quickJoinButton->setText(tr("Join: %1 (%2 online)").arg(active.label).arg(*m_lastPingPlayers));
+            } else {
+                m_quickJoinButton->setText(tr("Join: %1").arg(active.label));
+            }
+            m_quickJoinButton->setToolTip(tr("Quick-join \"%1\" (%2)").arg(active.label, active.targetValue));
+        }
         updateSessionMetrics();
     }
     updatePlayButtonState();
+}
+
+void InstanceInspector::updateQuickJoinState(bool animateVisibility)
+{
+    if (!m_quickJoinButton) {
+        return;
+    }
+
+    const QList<QuickJoinHelper::Target> allTargets = m_instance ? QuickJoinHelper::discoverTargets(m_instance) : QList<QuickJoinHelper::Target>{};
+    m_activeQuickJoin = m_instance ? QuickJoinHelper::resolveActiveTarget(m_instance, allTargets) : std::nullopt;
+    if (!m_instance || !m_activeQuickJoin.has_value()) {
+        m_pingInstanceId.clear();
+        m_pingAddressKey.clear();
+        m_lastPingMs = 0;
+        m_lastPingPlayers.reset();
+        m_quickJoinPingTask = nullptr;
+        UiAnimations::animateVisibleHeight(m_quickJoinButton, false, animateVisibility ? 140 : 0);
+        return;
+    }
+
+    const QuickJoinHelper::Target active = *m_activeQuickJoin;
+    const QString instId = m_instance->id();
+    const bool sameTarget = (m_pingInstanceId == instId && m_pingAddressKey == active.targetValue);
+    if (!sameTarget) {
+        m_lastPingMs = 0;
+        m_lastPingPlayers.reset();
+        m_quickJoinPingTask = nullptr;
+    }
+
+    m_quickJoinButton->setIcon(
+        QIcon::fromTheme(active.kind == QuickJoinHelper::Target::Kind::World ? QStringLiteral("worlds") : QStringLiteral("server")));
+    if (active.kind == QuickJoinHelper::Target::Kind::Server && sameTarget && m_lastPingPlayers.has_value() && *m_lastPingPlayers >= 0) {
+        m_quickJoinButton->setText(tr("Join: %1 (%2 online)").arg(active.label).arg(*m_lastPingPlayers));
+    } else {
+        m_quickJoinButton->setText(tr("Join: %1").arg(active.label));
+    }
+    m_quickJoinButton->setToolTip(tr("Quick-join \"%1\" (%2)").arg(active.label, active.targetValue));
+    m_quickJoinButton->setEnabled(!m_instance->isRunning() && m_instance->canLaunch());
+    UiAnimations::animateVisibleHeight(m_quickJoinButton, true, animateVisibility ? 140 : 0);
+
+    if (m_quickJoinMenu) {
+        m_quickJoinMenu->clear();
+        for (const auto& t : allTargets) {
+            const QString icon = (t.kind == QuickJoinHelper::Target::Kind::World) ? QStringLiteral("worlds") : QStringLiteral("server");
+            QAction* act = m_quickJoinMenu->addAction(QIcon::fromTheme(icon), t.label);
+            act->setCheckable(true);
+            act->setChecked(t.kind == active.kind && t.targetValue == active.targetValue);
+            QPointer<BaseInstance> instPtr(m_instance);
+            connect(act, &QAction::triggered, this, [this, instPtr, t]() {
+                if (instPtr) {
+                    QuickJoinHelper::savePinnedTarget(instPtr, t);
+                    updateQuickJoinState(false);
+                }
+            });
+        }
+        m_quickJoinMenu->addSeparator();
+        QAction* resetAct = m_quickJoinMenu->addAction(tr("Auto (Reset Pin)"));
+        QPointer<BaseInstance> instPtr(m_instance);
+        connect(resetAct, &QAction::triggered, this, [this, instPtr]() {
+            if (instPtr) {
+                QuickJoinHelper::savePinnedTarget(instPtr, std::nullopt);
+                updateQuickJoinState(false);
+            }
+        });
+    }
+
+    if (active.kind == QuickJoinHelper::Target::Kind::Server && !m_instance->isRunning()) {
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        constexpr qint64 kPingCacheMs = 30000;
+        if (sameTarget && (m_quickJoinPingTask != nullptr || (m_lastPingMs > 0 && (nowMs - m_lastPingMs) < kPingCacheMs))) {
+            return;
+        }
+        const auto parsed = MinecraftTarget::parse(active.targetValue, false);
+        m_pingInstanceId = instId;
+        m_pingAddressKey = active.targetValue;
+        m_lastPingMs = nowMs;
+        auto* ping = new ServerPingTask(parsed.address, parsed.port);
+        ping->setParent(this);
+        connect(ping, &Task::finished, ping, &QObject::deleteLater);
+        m_quickJoinPingTask = ping;
+        const QString pingKey = m_pingAddressKey;
+        const QString label = active.label;
+        connect(ping, &Task::finished, this, [this, ping, instId, pingKey, label]() {
+            if (m_pingInstanceId == instId && m_pingAddressKey == pingKey) {
+                m_lastPingPlayers = ping->m_outputOnlinePlayers;
+                m_lastPingMs = QDateTime::currentMSecsSinceEpoch();
+                if (m_quickJoinButton && ping->m_outputOnlinePlayers >= 0) {
+                    m_quickJoinButton->setText(tr("Join: %1 (%2 online)").arg(label).arg(ping->m_outputOnlinePlayers));
+                }
+            }
+        });
+        ping->start();
+    } else {
+        m_pingInstanceId.clear();
+        m_pingAddressKey.clear();
+        m_lastPingMs = 0;
+        m_lastPingPlayers.reset();
+    }
 }
 
 void InstanceInspector::updatePinButtonState()
