@@ -75,6 +75,9 @@ ecm_add_test(SkinRasterizer_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSIO
 ecm_add_test(DeltaSync_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
     TEST_NAME DeltaSync)
 
+ecm_add_test(ZipRangeDelta_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Network
+    TEST_NAME ZipRangeDelta)
+
 ecm_add_test(UiAnimations_test.cpp LINK_LIBRARIES Launcher_logic Qt${QT_VERSION_MAJOR}::Test
     TEST_NAME UiAnimations)
 

@@ -19,10 +19,8 @@
 #include "DeltaSyncTask.h"
 
 #include <QCryptographicHash>
-#include <QDateTime>
 #include <QDebug>
 #include <QDir>
-#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -30,15 +28,14 @@
 #include <QSet>
 #include <QUrl>
 
-#include <archive.h>
-#include <archive_entry.h>
-
 #if defined(LAUNCHER_APPLICATION)
 #include "Application.h"
 #include "BaseInstance.h"
 #include "FileSystem.h"
 #include "net/ChecksumValidator.h"
 #include "net/Download.h"
+#include "tasks/ManagedFilesIndex.h"
+#include "tasks/ZipDeltaDownloader.h"
 
 static QString computeFileSha1Hex(const QString& filePath)
 {
@@ -55,50 +52,27 @@ static QString computeFileSha1Hex(const QString& filePath)
     return QString::fromLatin1(hash.result().toHex());
 }
 
-static bool writeEntryToArchive(struct archive* a, const QString& fullPath, const QString& relPath)
-{
-    QFileInfo fi(fullPath);
-    if (!fi.exists() || !fi.isFile()) {
-        return false;
-    }
-
-    struct archive_entry* entry = archive_entry_new();
-    if (!entry) {
-        return false;
-    }
-    archive_entry_set_pathname_utf8(entry, relPath.toUtf8().constData());
-    archive_entry_set_filetype(entry, AE_IFREG);
-    archive_entry_set_size(entry, fi.size());
-    archive_entry_set_mtime(entry, fi.lastModified().toSecsSinceEpoch(), 0);
-    archive_entry_set_perm(entry, 0644);
-
-    if (archive_write_header(a, entry) != ARCHIVE_OK) {
-        archive_entry_free(entry);
-        return false;
-    }
-    archive_entry_free(entry);
-
-    QFile file(fullPath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        return false;
-    }
-
-    constexpr qint64 bufSize = 65536;
-    QByteArray buffer(bufSize, Qt::Uninitialized);
-    while (!file.atEnd()) {
-        qint64 bytesRead = file.read(buffer.data(), bufSize);
-        if (bytesRead <= 0 || archive_write_data(a, buffer.constData(), bytesRead) < 0) {
-            return false;
-        }
-    }
-    return true;
-}
-
 DeltaSyncTask::DeltaSyncTask(BaseInstance* instance,
                              const QJsonObject& manifest,
                              const QString& targetVersion,
                              QObject* parent)
     : Task(), m_instance(instance), m_manifest(manifest), m_targetVersion(targetVersion)
+{
+    if (parent) {
+        setParent(parent);
+    }
+}
+
+DeltaSyncTask::DeltaSyncTask(BaseInstance* instance,
+                             const ZipDeltaPlan& zipPlan,
+                             QNetworkAccessManager* network,
+                             QObject* parent)
+    : Task(),
+      m_instance(instance),
+      m_targetVersion(zipPlan.targetVersion),
+      m_useZipPlan(true),
+      m_zipPlan(zipPlan),
+      m_network(network)
 {
     if (parent) {
         setParent(parent);
@@ -115,6 +89,9 @@ bool DeltaSyncTask::abort()
     if (m_downloadJob && m_downloadJob->isRunning()) {
         m_downloadJob->abort();
     }
+    if (m_zipDownloader && m_zipDownloader->isRunning()) {
+        m_zipDownloader->abort();
+    }
     cleanupTemporaryDirs();
     return Task::abort();
 }
@@ -126,7 +103,7 @@ bool DeltaSyncTask::isPathSafe(const QString& rawPath)
         return false;
     }
 
-    QString clean = QDir::cleanPath(QString(rawPath).replace('\\', '/'));
+    const QString clean = QDir::cleanPath(QString(rawPath).replace('\\', '/'));
     if (clean.startsWith('/') || clean.startsWith('\\') || clean.contains("..") || clean.contains(':') || clean.endsWith('/')) {
         return false;
     }
@@ -141,7 +118,7 @@ bool DeltaSyncTask::isPathSafe(const QString& rawPath)
     }
 
     static const QStringList forbiddenPrefixes = {
-        "patches/", "saves/", "screenshots/", "backups/", ".delta_staging/", ".delta_backup/"
+        "patches/", "saves/", "screenshots/", "backups/", "logs/", "crash-reports/", ".delta_staging/", ".delta_backup/"
     };
     for (const auto& prefix : forbiddenPrefixes) {
         if (clean.startsWith(prefix, Qt::CaseInsensitive)) {
@@ -149,9 +126,15 @@ bool DeltaSyncTask::isPathSafe(const QString& rawPath)
         }
     }
 
-    return clean.startsWith("mods/", Qt::CaseInsensitive) ||
-           clean.startsWith("kubejs/", Qt::CaseInsensitive) ||
-           clean.startsWith("config/", Qt::CaseInsensitive);
+    static const QStringList allowedPrefixes = {
+        "mods/", "kubejs/", "config/", "defaultconfigs/", "resourcepacks/", "shaderpacks/", "datapacks/"
+    };
+    for (const auto& allowed : allowedPrefixes) {
+        if (clean.startsWith(allowed, Qt::CaseInsensitive)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool DeltaSyncTask::validatePathSecurity(const QString& rawPath) const
@@ -165,9 +148,11 @@ QList<DeltaFileItem> DeltaSyncTask::parseManifestItems(const QJsonObject& manife
     QSet<QString> seen;
 
     auto addParsed = [&items, &seen](const QString& path, const QString& sha1, qint64 size,
-                                     const QString& url, DeltaFileItem::Action action) {
-        if (path.isEmpty()) return;
-        DeltaFileItem item{path, sha1, size, url, action};
+                                     const QString& url, DeltaFileItem::Action action, bool overwrite) {
+        if (path.isEmpty()) {
+            return;
+        }
+        DeltaFileItem item{ path, sha1, size, url, action, overwrite };
         if (seen.contains(path)) {
             for (auto& existing : items) {
                 if (existing.path == path) {
@@ -180,31 +165,35 @@ QList<DeltaFileItem> DeltaSyncTask::parseManifestItems(const QJsonObject& manife
         items.append(item);
     };
 
-    auto parseObject = [&](const QJsonObject& obj, DeltaFileItem::Action defaultAction) {
-        QString path = obj.value("path").toString(obj.value("file").toString());
-        QString sha1 = obj.value("sha1").toString(obj.value("hash").toString());
-        qint64 size = obj.contains("size") ? obj.value("size").toVariant().toLongLong()
-                                           : obj.value("fileSize").toVariant().toLongLong();
-        QString url = obj.value("url").toString(obj.value("downloadUrl").toString());
-        QString act = obj.value("action").toString().toLower();
-        auto action = (act == "remove" || act == "delete") ? DeltaFileItem::Action::Remove : defaultAction;
-        addParsed(path, sha1, size, url, action);
+    auto parseObject = [&](const QJsonObject& entryObj, DeltaFileItem::Action defaultAction) {
+        const QString path = entryObj.value("path").toString(entryObj.value("file").toString());
+        const QString sha1 = entryObj.value("sha1").toString(entryObj.value("hash").toString());
+        const qint64 size = entryObj.contains("size") ? entryObj.value("size").toVariant().toLongLong()
+                                                      : entryObj.value("fileSize").toVariant().toLongLong();
+        const QString url = entryObj.value("url").toString(entryObj.value("downloadUrl").toString());
+        const QString act = entryObj.value("action").toString().toLower();
+        const bool preserve = entryObj.value("preserveIfExists").toBool(false);
+        const bool overwrite = entryObj.value("overwrite").toBool(true) && !preserve;
+        const auto action = (act == "remove" || act == "delete") ? DeltaFileItem::Action::Remove : defaultAction;
+        addParsed(path, sha1, size, url, action, overwrite);
     };
 
-    for (const auto& key : {"files", "updates"}) {
+    for (const auto& key : { "files", "updates" }) {
         if (manifest.contains(key) && manifest.value(key).isArray()) {
-            for (const auto& val : manifest.value(key).toArray()) {
-                if (val.isObject()) parseObject(val.toObject(), DeltaFileItem::Action::Update);
+            for (const auto& itemValue : manifest.value(key).toArray()) {
+                if (itemValue.isObject()) {
+                    parseObject(itemValue.toObject(), DeltaFileItem::Action::Update);
+                }
             }
         }
     }
-    for (const auto& key : {"removals", "remove"}) {
+    for (const auto& key : { "removals", "remove" }) {
         if (manifest.contains(key) && manifest.value(key).isArray()) {
-            for (const auto& val : manifest.value(key).toArray()) {
-                if (val.isObject()) {
-                    parseObject(val.toObject(), DeltaFileItem::Action::Remove);
-                } else if (val.isString()) {
-                    addParsed(val.toString(), "", 0, "", DeltaFileItem::Action::Remove);
+            for (const auto& itemValue : manifest.value(key).toArray()) {
+                if (itemValue.isObject()) {
+                    parseObject(itemValue.toObject(), DeltaFileItem::Action::Remove);
+                } else if (itemValue.isString()) {
+                    addParsed(itemValue.toString(), "", 0, "", DeltaFileItem::Action::Remove, true);
                 }
             }
         }
@@ -214,12 +203,20 @@ QList<DeltaFileItem> DeltaSyncTask::parseManifestItems(const QJsonObject& manife
 
 bool DeltaSyncTask::isLocalFileUpToDate(const QString& targetPath, const DeltaFileItem& item)
 {
-    if (item.action != DeltaFileItem::Action::Update || item.sha1.isEmpty()) {
+    if (item.action != DeltaFileItem::Action::Update) {
         return false;
     }
 
     QFileInfo fi(targetPath);
     if (!fi.exists() || !fi.isFile()) {
+        return false;
+    }
+
+    if (!item.overwrite) {
+        return true;
+    }
+
+    if (item.sha1.isEmpty()) {
         return false;
     }
 
@@ -257,69 +254,6 @@ int DeltaSyncTask::filterUnchangedUpdates(const QString& gameRoot, QList<DeltaFi
 bool DeltaSyncTask::parseManifest()
 {
     m_items = parseManifestItems(m_manifest);
-    return true;
-}
-
-void DeltaSyncTask::rotateBackups(const QString& backupsDir, int maxKeep)
-{
-    QDir dir(backupsDir);
-    QFileInfoList list = dir.entryInfoList(QStringList() << "auto_pre_update_*.zip", QDir::Files, QDir::Name);
-    while (list.size() > maxKeep) {
-        QFile::remove(list.first().absoluteFilePath());
-        list.removeFirst();
-    }
-}
-
-bool DeltaSyncTask::createPreUpdateSnapshot()
-{
-    QString gameRoot = m_instance->gameRoot();
-    QString backupsDir = FS::PathCombine(gameRoot, "backups");
-    if (!QDir().mkpath(backupsDir)) {
-        return false;
-    }
-
-    rotateBackups(backupsDir, 2);
-
-    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
-    QString archivePath = FS::PathCombine(backupsDir, QString("auto_pre_update_%1.zip").arg(timestamp));
-
-    struct archive* a = archive_write_new();
-    if (!a) {
-        return false;
-    }
-    archive_write_set_format_by_name(a, "zip");
-    archive_write_set_options(a, "zip:compression=store");
-    archive_write_set_options(a, "hdrcharset=UTF-8");
-
-#if defined(Q_OS_WIN)
-    int r = archive_write_open_filename_w(a, archivePath.toStdWString().data());
-#else
-    int r = archive_write_open_filename(a, archivePath.toUtf8().constData());
-#endif
-    if (r != ARCHIVE_OK) {
-        archive_write_free(a);
-        return false;
-    }
-
-    QString optionsFile = FS::PathCombine(gameRoot, "options.txt");
-    if (QFile::exists(optionsFile)) {
-        writeEntryToArchive(a, optionsFile, "options.txt");
-    }
-
-    QString savesDir = FS::PathCombine(gameRoot, "saves");
-    QDir saves(savesDir);
-    if (saves.exists()) {
-        QDirIterator it(savesDir, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
-        while (it.hasNext()) {
-            it.next();
-            writeEntryToArchive(a, it.filePath(), "saves/" + saves.relativeFilePath(it.filePath()));
-        }
-    }
-
-    archive_write_close(a);
-    archive_write_free(a);
-
-    rotateBackups(backupsDir, 3);
     return true;
 }
 
@@ -374,6 +308,49 @@ void DeltaSyncTask::startStagedDownload()
     m_downloadJob->start();
 }
 
+void DeltaSyncTask::startZipPlanDownload()
+{
+    if (m_zipPlan.entriesToDownload.isEmpty()) {
+        executeRollbackJournalAndCommit();
+        return;
+    }
+
+    QNetworkAccessManager* network = m_network ? m_network.data() : (APPLICATION ? APPLICATION->network() : nullptr);
+    if (!network) {
+        emitFailed(tr("Network subsystem unavailable. Please use full archive import."));
+        return;
+    }
+
+    cleanupTemporaryDirs();
+    if (!QDir().mkpath(m_stagingDir)) {
+        emitFailed(tr("Failed to create delta staging directory."));
+        return;
+    }
+
+    m_zipDownloader = new ZipDeltaDownloadTask(network, m_zipPlan, m_stagingDir, this);
+    connect(m_zipDownloader, &Task::progress, this, &DeltaSyncTask::setProgress);
+    connect(m_zipDownloader, &Task::status, this, &DeltaSyncTask::setStatus);
+    connect(m_zipDownloader, &Task::succeeded, this, [this]() {
+        m_zipDownloader->deleteLater();
+        m_zipDownloader.clear();
+        setAbortable(false);
+        executeRollbackJournalAndCommit();
+    });
+    connect(m_zipDownloader, &Task::failed, this, [this](const QString& reason) {
+        m_zipDownloader->deleteLater();
+        m_zipDownloader.clear();
+        onDownloadJobFailed(reason);
+    });
+    connect(m_zipDownloader, &Task::aborted, this, [this]() {
+        m_zipDownloader->deleteLater();
+        m_zipDownloader.clear();
+        onDownloadJobAborted();
+    });
+
+    setAbortable(true);
+    m_zipDownloader->start();
+}
+
 void DeltaSyncTask::onDownloadJobSucceeded()
 {
     setAbortable(false);
@@ -404,7 +381,7 @@ bool DeltaSyncTask::validateDownloadedFiles()
             continue;
         }
 
-        QString stagedPath = FS::PathCombine(m_stagingDir, item.path);
+        const QString stagedPath = FS::PathCombine(m_stagingDir, item.path);
         QFileInfo fi(stagedPath);
         if (!fi.exists() || !fi.isFile()) {
             cleanupTemporaryDirs();
@@ -442,108 +419,6 @@ bool DeltaSyncTask::validateDownloadedFiles()
     return true;
 }
 
-void DeltaSyncTask::rollbackJournal(const QStringList& movedFiles)
-{
-    setStatus(tr("Rolling back changes..."));
-    QString gameRoot = m_instance->gameRoot();
-
-    for (const QString& relPath : movedFiles) {
-        QString backupPath = FS::PathCombine(m_backupDir, relPath);
-        QString originalPath = FS::PathCombine(gameRoot, relPath);
-        if (QFile::exists(backupPath)) {
-            FS::ensureFilePathExists(originalPath);
-            if (QFile::exists(originalPath)) {
-                QFile::remove(originalPath);
-            }
-            FS::move(backupPath, originalPath);
-        }
-    }
-
-    cleanupTemporaryDirs();
-    emitFailed(tr("File locked or access denied. Delta sync rolled back. Please use full archive import."));
-}
-
-bool DeltaSyncTask::executeRollbackJournalAndCommit()
-{
-    QString gameRoot = m_instance->gameRoot();
-
-    setStatus(tr("Preparing rollback journal..."));
-    if (QDir(m_backupDir).exists()) {
-        FS::deletePath(m_backupDir);
-    }
-    if (!QDir().mkpath(m_backupDir)) {
-        cleanupTemporaryDirs();
-        emitFailed(tr("File locked or access denied. Delta sync rolled back. Please use full archive import."));
-        return false;
-    }
-
-    QStringList movedFiles;
-    for (const auto& item : m_items) {
-        QString targetPath = FS::PathCombine(gameRoot, item.path);
-        if (QFile::exists(targetPath)) {
-            QString backupPath = FS::PathCombine(m_backupDir, item.path);
-            FS::ensureFilePathExists(backupPath);
-            if (QFile::exists(backupPath)) {
-                QFile::remove(backupPath);
-            }
-            if (!FS::move(targetPath, backupPath)) {
-                rollbackJournal(movedFiles);
-                return false;
-            }
-            movedFiles.append(item.path);
-        }
-    }
-
-    const QString cleanGameRoot = QDir::cleanPath(QDir(gameRoot).absolutePath());
-    setStatus(tr("Committing updates..."));
-    for (const auto& item : m_items) {
-        if (item.action == DeltaFileItem::Action::Update) {
-            QString stagedPath = FS::PathCombine(m_stagingDir, item.path);
-            QString targetPath = FS::PathCombine(gameRoot, item.path);
-            if (QFile::exists(stagedPath)) {
-                FS::ensureFilePathExists(targetPath);
-                if (QFile::exists(targetPath)) {
-                    QFile::remove(targetPath);
-                }
-                if (!FS::move(stagedPath, targetPath)) {
-                    rollbackJournal(movedFiles);
-                    return false;
-                }
-            }
-        } else if (item.action == DeltaFileItem::Action::Remove) {
-            QString targetPath = FS::PathCombine(gameRoot, item.path);
-            if (QFile::exists(targetPath)) {
-                QFile::remove(targetPath);
-            }
-            QDir parentDir = QFileInfo(targetPath).dir();
-            while (QDir::cleanPath(parentDir.absolutePath()) != cleanGameRoot && parentDir.exists() && parentDir.isEmpty()) {
-                const QString dirName = parentDir.dirName();
-                if (!parentDir.cdUp() || !parentDir.rmdir(dirName)) {
-                    break;
-                }
-            }
-        }
-    }
-
-    m_instance->setManagedPackVersionID(m_targetVersion);
-    m_instance->setManagedPackVersionName(m_targetVersion);
-    m_instance->saveNow();
-
-    cleanupTemporaryDirs();
-    emitSucceeded();
-    return true;
-}
-
-void DeltaSyncTask::cleanupTemporaryDirs()
-{
-    if (!m_stagingDir.isEmpty() && QDir(m_stagingDir).exists()) {
-        FS::deletePath(m_stagingDir);
-    }
-    if (!m_backupDir.isEmpty() && QDir(m_backupDir).exists()) {
-        FS::deletePath(m_backupDir);
-    }
-}
-
 void DeltaSyncTask::executeTask()
 {
     if (!m_instance) {
@@ -553,6 +428,45 @@ void DeltaSyncTask::executeTask()
 
     m_stagingDir = FS::PathCombine(m_instance->gameRoot(), ".delta_staging");
     m_backupDir = FS::PathCombine(m_instance->gameRoot(), ".delta_backup");
+
+    if (m_useZipPlan) {
+        if (!m_zipPlan.valid) {
+            emitFailed(tr("Invalid ZIP delta plan."));
+            return;
+        }
+        m_items.clear();
+        for (const ZipRemoteEntry& entry : m_zipPlan.entriesToDownload) {
+            if (!validatePathSecurity(entry.normalizedPath)) {
+                emitFailed(tr("Security violation: Archive attempts to modify protected path '%1'").arg(entry.normalizedPath));
+                return;
+            }
+            DeltaFileItem item;
+            item.path = entry.normalizedPath;
+            item.size = static_cast<qint64>(entry.uncompressedSize);
+            item.action = DeltaFileItem::Action::Update;
+            m_items.append(item);
+        }
+        for (const QString& remPath : m_zipPlan.pathsToRemove) {
+            if (!validatePathSecurity(remPath)) {
+                emitFailed(tr("Security violation: Archive attempts to remove protected path '%1'").arg(remPath));
+                return;
+            }
+            DeltaFileItem item;
+            item.path = remPath;
+            item.action = DeltaFileItem::Action::Remove;
+            m_items.append(item);
+        }
+        if (m_items.isEmpty()) {
+            m_instance->setManagedPackVersionID(m_targetVersion);
+            m_instance->setManagedPackVersionName(m_targetVersion);
+            m_instance->saveNow();
+            persistManagedIndex();
+            emitSucceeded();
+            return;
+        }
+        startZipPlanDownload();
+        return;
+    }
 
     setStatus(tr("Validating delta sync manifest..."));
     if (!parseManifest()) {
@@ -576,13 +490,9 @@ void DeltaSyncTask::executeTask()
         m_instance->setManagedPackVersionID(m_targetVersion);
         m_instance->setManagedPackVersionName(m_targetVersion);
         m_instance->saveNow();
+        persistManagedIndex();
         emitSucceeded();
         return;
-    }
-
-    setStatus(tr("Creating pre-update backup snapshot..."));
-    if (!createPreUpdateSnapshot()) {
-        logWarning("Pre-update snapshot completed with warnings or was skipped.");
     }
 
     startStagedDownload();
@@ -600,6 +510,16 @@ DeltaSyncTask::DeltaSyncTask(BaseInstance* instance,
         setParent(parent);
     }
 }
+DeltaSyncTask::DeltaSyncTask(BaseInstance* instance,
+                             const ZipDeltaPlan& zipPlan,
+                             QNetworkAccessManager* network,
+                             QObject* parent)
+    : Task(), m_instance(instance), m_targetVersion(zipPlan.targetVersion), m_useZipPlan(true), m_zipPlan(zipPlan), m_network(network)
+{
+    if (parent) {
+        setParent(parent);
+    }
+}
 DeltaSyncTask::~DeltaSyncTask() = default;
 bool DeltaSyncTask::abort() { return Task::abort(); }
 void DeltaSyncTask::executeTask() { emitFailed("Not supported"); }
@@ -608,12 +528,12 @@ void DeltaSyncTask::onDownloadJobFailed(const QString&) {}
 void DeltaSyncTask::onDownloadJobAborted() {}
 bool DeltaSyncTask::parseManifest() { return false; }
 bool DeltaSyncTask::validatePathSecurity(const QString&) const { return false; }
-bool DeltaSyncTask::createPreUpdateSnapshot() { return false; }
-void DeltaSyncTask::rotateBackups(const QString&, int) {}
 void DeltaSyncTask::startStagedDownload() {}
+void DeltaSyncTask::startZipPlanDownload() {}
 bool DeltaSyncTask::validateDownloadedFiles() { return false; }
 bool DeltaSyncTask::executeRollbackJournalAndCommit() { return false; }
 void DeltaSyncTask::rollbackJournal(const QStringList&) {}
+void DeltaSyncTask::persistManagedIndex() {}
 void DeltaSyncTask::cleanupTemporaryDirs() {}
 
 #endif

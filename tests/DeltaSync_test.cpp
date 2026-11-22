@@ -95,6 +95,40 @@ class DeltaSyncTest : public QObject {
         QCOMPARE(items[1].path, QString("mods/missing.jar"));
         QCOMPARE(items[2].path, QString("mods/old.jar"));
     }
+
+    void testExtendedPackPathsAndOverwriteFalse()
+    {
+        QVERIFY(DeltaSyncTask::isPathSafe("resourcepacks/pack.zip"));
+        QVERIFY(DeltaSyncTask::isPathSafe("shaderpacks/shader.zip"));
+        QVERIFY(DeltaSyncTask::isPathSafe("defaultconfigs/server.toml"));
+        QVERIFY(DeltaSyncTask::isPathSafe("datapacks/world_fix.zip"));
+
+        QVERIFY(!DeltaSyncTask::isPathSafe("options.txt"));
+        QVERIFY(!DeltaSyncTask::isPathSafe("servers.dat"));
+        QVERIFY(!DeltaSyncTask::isPathSafe("saves/world/level.dat"));
+        QVERIFY(!DeltaSyncTask::isPathSafe("mods/../options.txt"));
+
+        QTemporaryDir packDir;
+        QVERIFY(packDir.isValid());
+        const QByteArray userConfigBytes("user-edited=true");
+        const QString cfgPath = FS::PathCombine(packDir.path(), "config/client.toml");
+        FS::ensureFilePathExists(cfgPath);
+        QFile cfgFile(cfgPath);
+        QVERIFY(cfgFile.open(QIODevice::WriteOnly));
+        QCOMPARE(cfgFile.write(userConfigBytes), userConfigBytes.size());
+        cfgFile.close();
+
+        const QString newSha1 = QString::fromLatin1(QCryptographicHash::hash("default-cfg", QCryptographicHash::Sha1).toHex());
+        QList<DeltaFileItem> items = {
+            { "config/client.toml", newSha1, 11, "https://example/client.toml", DeltaFileItem::Action::Update, false },
+            { "config/new.toml", newSha1, 11, "https://example/new.toml", DeltaFileItem::Action::Update, false },
+        };
+
+        const int skipped = DeltaSyncTask::filterUnchangedUpdates(packDir.path(), items);
+        QCOMPARE(skipped, 1);
+        QCOMPARE(items.size(), 1);
+        QCOMPARE(items[0].path, QString("config/new.toml"));
+    }
 };
 
 QTEST_GUILESS_MAIN(DeltaSyncTest)

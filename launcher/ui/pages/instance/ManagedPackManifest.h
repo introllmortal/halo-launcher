@@ -22,6 +22,8 @@
 #include <QUrl>
 #include <QVector>
 
+#include "tasks/ZipDeltaPlanner.h"
+
 class BaseInstance;
 class QWidget;
 
@@ -44,7 +46,10 @@ struct ManagedPackUpdateCandidate {
     QUrl downloadUrl;
     bool isDelta = false;
     bool isHaloPack = false;
+    bool hasZipDeltaPlan = false;
+    QString deltaSummary;
     HaloPackVersion haloVersion;
+    ZipDeltaPlan zipDeltaPlan;
 };
 
 namespace ManagedPackUpdater {

@@ -43,33 +43,33 @@
 
 namespace {
 
-void extractDeltaManifestFields(const QJsonObject& obj, HaloPackVersion& pv)
+void extractDeltaManifestFields(const QJsonObject& releaseObj, HaloPackVersion& pv)
 {
     for (const QString& key : { QStringLiteral("delta_manifest"), QStringLiteral("deltaManifest") }) {
-        if (!obj.contains(key)) {
+        if (!releaseObj.contains(key)) {
             continue;
         }
-        if (obj[key].isObject()) {
-            pv.deltaManifest = obj[key].toObject();
+        if (releaseObj[key].isObject()) {
+            pv.deltaManifest = releaseObj[key].toObject();
             pv.hasDeltaManifest = true;
             return;
         }
-        if (obj[key].isString()) {
-            pv.deltaManifestUrl = QUrl(obj[key].toString());
+        if (releaseObj[key].isString()) {
+            pv.deltaManifestUrl = QUrl(releaseObj[key].toString());
             pv.hasDeltaManifest = pv.deltaManifestUrl.isValid();
             return;
         }
     }
-    if (obj.contains(QStringLiteral("delta_manifest_url"))) {
-        pv.deltaManifestUrl = QUrl(obj[QStringLiteral("delta_manifest_url")].toString());
+    if (releaseObj.contains(QStringLiteral("delta_manifest_url"))) {
+        pv.deltaManifestUrl = QUrl(releaseObj[QStringLiteral("delta_manifest_url")].toString());
         pv.hasDeltaManifest = pv.deltaManifestUrl.isValid();
         return;
     }
-    if (obj.contains(QStringLiteral("assets"))) {
-        for (const auto& a : obj[QStringLiteral("assets")].toArray()) {
-            const auto aObj = a.toObject();
-            if (aObj[QStringLiteral("name")].toString().endsWith(QStringLiteral("delta_manifest.json"), Qt::CaseInsensitive)) {
-                pv.deltaManifestUrl = QUrl(aObj[QStringLiteral("browser_download_url")].toString());
+    if (releaseObj.contains(QStringLiteral("assets"))) {
+        for (const auto& assetValue : releaseObj[QStringLiteral("assets")].toArray()) {
+            const auto assetObj = assetValue.toObject();
+            if (assetObj[QStringLiteral("name")].toString().endsWith(QStringLiteral("delta_manifest.json"), Qt::CaseInsensitive)) {
+                pv.deltaManifestUrl = QUrl(assetObj[QStringLiteral("browser_download_url")].toString());
                 pv.hasDeltaManifest = pv.deltaManifestUrl.isValid();
                 return;
             }
@@ -248,32 +248,32 @@ QVector<HaloPackVersion> parseHaloPackVersions(const QByteArray& jsonData)
     }
 
     QVector<HaloPackVersion> versions;
-    for (const auto& val : arr) {
-        const auto obj = val.toObject();
+    for (const auto& versionValue : arr) {
+        const auto versionObj = versionValue.toObject();
         HaloPackVersion pv;
-        pv.version = obj.contains(QStringLiteral("version")) ? obj[QStringLiteral("version")].toString()
-                                                             : obj[QStringLiteral("tag_name")].toString();
-        pv.name = obj.contains(QStringLiteral("name")) ? obj[QStringLiteral("name")].toString() : pv.version;
-        pv.changelog = obj.contains(QStringLiteral("changelog")) ? obj[QStringLiteral("changelog")].toString()
-                                                                 : obj[QStringLiteral("body")].toString();
+        pv.version = versionObj.contains(QStringLiteral("version")) ? versionObj[QStringLiteral("version")].toString()
+                                                                    : versionObj[QStringLiteral("tag_name")].toString();
+        pv.name = versionObj.contains(QStringLiteral("name")) ? versionObj[QStringLiteral("name")].toString() : pv.version;
+        pv.changelog = versionObj.contains(QStringLiteral("changelog")) ? versionObj[QStringLiteral("changelog")].toString()
+                                                                        : versionObj[QStringLiteral("body")].toString();
 
-        if (obj.contains(QStringLiteral("url"))) {
-            pv.downloadUrl = QUrl(obj[QStringLiteral("url")].toString());
-        } else if (obj.contains(QStringLiteral("download_url"))) {
-            pv.downloadUrl = QUrl(obj[QStringLiteral("download_url")].toString());
-        } else if (obj.contains(QStringLiteral("assets"))) {
-            for (const auto& a : obj[QStringLiteral("assets")].toArray()) {
-                const auto aObj = a.toObject();
-                const QString aName = aObj[QStringLiteral("name")].toString();
-                if (aName.endsWith(QStringLiteral(".mrpack"), Qt::CaseInsensitive) ||
-                    aName.endsWith(QStringLiteral(".zip"), Qt::CaseInsensitive)) {
-                    pv.downloadUrl = QUrl(aObj[QStringLiteral("browser_download_url")].toString());
+        if (versionObj.contains(QStringLiteral("url"))) {
+            pv.downloadUrl = QUrl(versionObj[QStringLiteral("url")].toString());
+        } else if (versionObj.contains(QStringLiteral("download_url"))) {
+            pv.downloadUrl = QUrl(versionObj[QStringLiteral("download_url")].toString());
+        } else if (versionObj.contains(QStringLiteral("assets"))) {
+            for (const auto& assetValue : versionObj[QStringLiteral("assets")].toArray()) {
+                const auto assetObj = assetValue.toObject();
+                const QString assetName = assetObj[QStringLiteral("name")].toString();
+                if (assetName.endsWith(QStringLiteral(".mrpack"), Qt::CaseInsensitive) ||
+                    assetName.endsWith(QStringLiteral(".zip"), Qt::CaseInsensitive)) {
+                    pv.downloadUrl = QUrl(assetObj[QStringLiteral("browser_download_url")].toString());
                     break;
                 }
             }
         }
 
-        extractDeltaManifestFields(obj, pv);
+        extractDeltaManifestFields(versionObj, pv);
         if (!pv.version.isEmpty() && pv.downloadUrl.isValid()) {
             versions.append(pv);
         }
@@ -336,6 +336,13 @@ bool askConfirmUpdateDialog(BaseInstance* inst, const ManagedPackUpdateCandidate
         metaRow->addWidget(srcLabel);
     }
     root->addLayout(metaRow);
+
+    if (!candidate.deltaSummary.isEmpty()) {
+        auto* deltaInfo = new QLabel(candidate.deltaSummary, &dlg);
+        deltaInfo->setObjectName(QStringLiteral("inspectorMetaLabel"));
+        deltaInfo->setWordWrap(true);
+        root->addWidget(deltaInfo);
+    }
 
     auto* browser = new QTextBrowser(&dlg);
     browser->setOpenExternalLinks(false);

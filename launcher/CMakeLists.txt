@@ -142,6 +142,8 @@ set(NET_SOURCES
     net/FileSink.h
     net/HttpMetaCache.cpp
     net/HttpMetaCache.h
+    net/HttpRangeClient.cpp
+    net/HttpRangeClient.h
     net/MetaCacheSink.cpp
     net/MetaCacheSink.h
     net/Logging.h
@@ -461,6 +463,15 @@ set(TASKS_SOURCES
     tasks/MultipleOptionsTask.cpp
     tasks/DeltaSyncTask.h
     tasks/DeltaSyncTask.cpp
+    tasks/DeltaSyncCommit.cpp
+    tasks/ManagedFilesIndex.h
+    tasks/ManagedFilesIndex.cpp
+    tasks/ZipRangeUtils.h
+    tasks/ZipRangeUtils.cpp
+    tasks/ZipDeltaPlanner.h
+    tasks/ZipDeltaPlanner.cpp
+    tasks/ZipDeltaDownloader.h
+    tasks/ZipDeltaDownloader.cpp
 )
 
 set(SETTINGS_SOURCES

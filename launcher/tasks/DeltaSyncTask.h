@@ -20,12 +20,16 @@
 
 #include <QJsonObject>
 #include <QList>
+#include <QNetworkAccessManager>
+#include <QPointer>
 #include <QString>
 
 #include "net/NetJob.h"
 #include "tasks/Task.h"
+#include "tasks/ZipDeltaPlanner.h"
 
 class BaseInstance;
+class ZipDeltaDownloadTask;
 
 struct DeltaFileItem {
     enum class Action { Update, Remove };
@@ -35,6 +39,7 @@ struct DeltaFileItem {
     qint64 size = 0;
     QString url;
     Action action = Action::Update;
+    bool overwrite = true;
 };
 
 class DeltaSyncTask : public Task {
@@ -44,6 +49,12 @@ class DeltaSyncTask : public Task {
                   const QJsonObject& manifest,
                   const QString& targetVersion,
                   QObject* parent = nullptr);
+
+    DeltaSyncTask(BaseInstance* instance,
+                  const ZipDeltaPlan& zipPlan,
+                  QNetworkAccessManager* network = nullptr,
+                  QObject* parent = nullptr);
+
     ~DeltaSyncTask() override;
 
     bool abort() override;
@@ -64,12 +75,12 @@ class DeltaSyncTask : public Task {
    private:
     bool parseManifest();
     bool validatePathSecurity(const QString& rawPath) const;
-    bool createPreUpdateSnapshot();
-    void rotateBackups(const QString& backupsDir, int maxKeep);
     void startStagedDownload();
+    void startZipPlanDownload();
     bool validateDownloadedFiles();
     bool executeRollbackJournalAndCommit();
     void rollbackJournal(const QStringList& movedFiles);
+    void persistManagedIndex();
     void cleanupTemporaryDirs();
 
    private:
@@ -77,6 +88,11 @@ class DeltaSyncTask : public Task {
     QJsonObject m_manifest;
     QString m_targetVersion;
     QList<DeltaFileItem> m_items;
+
+    bool m_useZipPlan = false;
+    ZipDeltaPlan m_zipPlan;
+    QPointer<QNetworkAccessManager> m_network;
+    QPointer<ZipDeltaDownloadTask> m_zipDownloader;
 
     QString m_stagingDir;
     QString m_backupDir;

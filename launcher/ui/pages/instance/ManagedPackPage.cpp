@@ -649,6 +649,13 @@ void HaloManagedPackPage::update()
     const auto& version = m_versions.at(idx);
     if (version.hasDeltaManifest) {
         executeDeltaSync(version);
+    } else if (version.downloadUrl.fileName().endsWith(QStringLiteral(".zip"), Qt::CaseInsensitive)) {
+        ui->updateButton->setEnabled(false);
+        const bool didSucceed = ManagedPackUpdater::runSmartZipUpdate(m_inst, version.downloadUrl, version.version, version.version, this, false);
+        ui->updateButton->setEnabled(true);
+        if (didSucceed) {
+            onUpdateTaskCompleted(true);
+        }
     } else {
         updatePack(version.downloadUrl, version.version, version.version);
     }

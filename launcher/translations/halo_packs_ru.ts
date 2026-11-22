@@ -23,6 +23,9 @@ Would you like to perform a full modpack archive update instead?</source><transl
     <message><source>Unknown error</source><translation>Неизвестная ошибка</translation></message>
     <message><source>Choose update file</source><translation>Выберите файл обновления</translation></message>
     <message><source>Modpack</source><translation>Модпак</translation></message>
+    <message><source>Checking modpack changes...</source><translation>Проверка изменений в модпаке...</translation></message>
+    <message><source>Smart delta update: %1 to download (%2 files changed, %3 unchanged, %4 removed) instead of %5</source><translation>Умное обновление: скачать %1 (изменено: %2, без изменений: %3, удалено: %4) вместо %5</translation></message>
+    <message><source>The instance updated to pack version %1 successfully.</source><translation>Сборка успешно обновлена до версии %1.</translation></message>
 </context>
 <context>
     <name>AutoInstallJava</name>

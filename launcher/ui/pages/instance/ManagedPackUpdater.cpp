@@ -28,6 +28,9 @@
 #include "InstanceList.h"
 #include "InstanceTask.h"
 #include "PackSnapshot.h"
+#include "StringUtils.h"
+#include "tasks/ManagedFilesIndex.h"
+#include "tasks/ZipDeltaPlanner.h"
 #include "net/ApiDownload.h"
 #include "net/NetJob.h"
 #include "tasks/DeltaSyncTask.h"
@@ -135,6 +138,10 @@ bool runImportUpdate(BaseInstance* inst,
     if (didSucceed) {
         safeInst->reloadSettings();
         safeInst->setUpdateAvailable(false);
+        const QString effectiveVersion =
+            safeInst->getManagedPackVersionName().isEmpty() ? versionName : safeInst->getManagedPackVersionName();
+        ManagedFilesIndex::save(safeInst->instanceRoot(),
+                                ManagedFilesIndex::scanGameRoot(safeInst->gameRoot(), effectiveVersion));
     }
     if (showResultDialog) {
         showUpdateOutcomeDialog(safeInst, didSucceed, parent);
@@ -150,14 +157,14 @@ bool executeHaloDeltaSync(BaseInstance* inst, const HaloPackVersion& version, QW
 
     const QPointer<BaseInstance> safeInst(inst);
     auto offerFullFallback = [&](const QString& reason) -> bool {
-        const auto res = CustomMessageBox::selectable(
-                             parent, QObject::tr("Delta Update Failed"),
-                             QObject::tr("Delta update could not be completed (%1).\n\nWould you like to perform a full modpack "
-                                         "archive update instead?")
-                                 .arg(reason),
-                             QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
-                             ->exec();
-        if (res == QMessageBox::Yes && safeInst) {
+        const auto choice = CustomMessageBox::selectable(
+                                parent, QObject::tr("Delta Update Failed"),
+                                QObject::tr("Delta update could not be completed (%1).\n\nWould you like to perform a full modpack "
+                                            "archive update instead?")
+                                    .arg(reason),
+                                QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
+                                ->exec();
+        if (choice == QMessageBox::Yes && safeInst) {
             return runImportUpdate(safeInst, version.downloadUrl, version.version, version.version, parent);
         }
         return false;
@@ -220,6 +227,94 @@ bool executeHaloDeltaSync(BaseInstance* inst, const HaloPackVersion& version, QW
     return true;
 }
 
+bool executeZipDeltaSync(BaseInstance* inst,
+                         const ZipDeltaPlan& plan,
+                         const QUrl& fallbackUrl,
+                         const QString& versionName,
+                         QWidget* parent,
+                         bool showResultDialog)
+{
+    if (!inst) {
+        return false;
+    }
+
+    QPointer<BaseInstance> safeInst(inst);
+    PackSnapshot::createSnapshot(safeInst, versionName);
+
+    auto* deltaTask = new DeltaSyncTask(safeInst, plan, APPLICATION->network(), parent);
+    ProgressDialog progressDialog(parent);
+    progressDialog.setSkipButton(true, QObject::tr("Abort"));
+    progressDialog.execWithTask(deltaTask);
+
+    const bool deltaSucceeded = deltaTask->wasSuccessful();
+    if (!deltaSucceeded) {
+        QString reason = deltaTask->failReason();
+        if (reason.isEmpty()) {
+            reason = deltaTask->wasAborted() ? QObject::tr("Task aborted by user") : QObject::tr("Unknown error");
+        }
+        delete deltaTask;
+        if (!safeInst) {
+            return false;
+        }
+        auto choice = CustomMessageBox::selectable(
+                          parent, QObject::tr("Delta Update Failed"),
+                          QObject::tr("Delta update could not be completed (%1).\n\nWould you like to perform a full modpack archive update instead?")
+                              .arg(reason),
+                          QMessageBox::Warning, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
+                          ->exec();
+        if (choice == QMessageBox::Yes) {
+            return runImportUpdate(safeInst, fallbackUrl, versionName, versionName, parent, showResultDialog);
+        }
+        return false;
+    }
+
+    delete deltaTask;
+    if (!safeInst) {
+        return false;
+    }
+    safeInst->reloadSettings();
+    safeInst->setUpdateAvailable(false);
+
+    if (showResultDialog) {
+        CustomMessageBox::selectable(parent, QObject::tr("Update Successful"),
+                                     QObject::tr("The instance updated to pack version %1 successfully.").arg(versionName),
+                                     QMessageBox::Information)
+            ->show();
+    }
+    return true;
+}
+
+bool runSmartZipUpdate(BaseInstance* inst,
+                       const QUrl& url,
+                       const QString& versionID,
+                       const QString& versionName,
+                       QWidget* parent,
+                       bool showResultDialog)
+{
+    if (!inst) {
+        return false;
+    }
+
+    QPointer<BaseInstance> safeInst(inst);
+    if (url.fileName().endsWith(QStringLiteral(".zip"), Qt::CaseInsensitive) && url.scheme().startsWith(QStringLiteral("http"))) {
+        auto* planTask = new ZipDeltaPlanTask(APPLICATION->network(), url, safeInst->instanceRoot(), safeInst->gameRoot(), versionName, parent);
+        ProgressDialog planDlg(parent);
+        planDlg.setSkipButton(true, QObject::tr("Abort"));
+        planDlg.execWithTask(planTask);
+        const bool userAborted = planTask->wasAborted();
+        const bool planReady = planTask->wasSuccessful() && planTask->plan().valid;
+        const ZipDeltaPlan plan = planTask->plan();
+        delete planTask;
+        if (!safeInst || userAborted) {
+            return false;
+        }
+        if (planReady) {
+            return executeZipDeltaSync(safeInst, plan, url, versionName, parent, showResultDialog);
+        }
+    }
+    return runImportUpdate(safeInst, url, versionID, versionName, parent, showResultDialog);
+}
+
 bool runOneStepUpdate(BaseInstance* inst, QWidget* parent)
 {
     if (!supportsOneStepUpdate(inst)) {
@@ -234,11 +329,11 @@ bool runOneStepUpdate(BaseInstance* inst, QWidget* parent)
 
     if (inst->getManagedPackID().isEmpty()) {
         if (!customUrl.isEmpty()) {
-            const auto res = CustomMessageBox::selectable(parent, QObject::tr("Modpack Update"),
-                                                          QObject::tr("Update \"%1\" from configured URL?\n%2").arg(inst->name(), customUrl),
-                                                          QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
-                                 ->exec();
-            if (res == QMessageBox::Yes && guard) {
+            const auto choice = CustomMessageBox::selectable(parent, QObject::tr("Modpack Update"),
+                                                             QObject::tr("Update \"%1\" from configured URL?\n%2").arg(inst->name(), customUrl),
+                                                             QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
+                                    ->exec();
+            if (choice == QMessageBox::Yes && guard) {
                 return runImportUpdate(guard, QUrl(customUrl), {}, {}, parent);
             }
             return false;
@@ -269,6 +364,34 @@ bool runOneStepUpdate(BaseInstance* inst, QWidget* parent)
     }
 
     guard->setUpdateAvailable(true);
+    if (candidate.isHaloPack && !candidate.haloVersion.hasDeltaManifest &&
+        candidate.downloadUrl.fileName().endsWith(QStringLiteral(".zip"), Qt::CaseInsensitive) &&
+        candidate.downloadUrl.scheme().startsWith(QStringLiteral("http"))) {
+        auto* planTask = new ZipDeltaPlanTask(APPLICATION->network(), candidate.downloadUrl, guard->instanceRoot(), guard->gameRoot(),
+                                              candidate.versionName, parent);
+        ProgressDialog planDlg(parent);
+        planDlg.setSkipButton(true, QObject::tr("Abort"));
+        planDlg.execWithTask(planTask);
+        const bool userAborted = planTask->wasAborted();
+        const bool planReady = planTask->wasSuccessful() && planTask->plan().valid;
+        if (planReady) {
+            const ZipDeltaPlan plan = planTask->plan();
+            candidate.isDelta = true;
+            candidate.hasZipDeltaPlan = true;
+            candidate.zipDeltaPlan = plan;
+            candidate.deltaSummary = QObject::tr("Smart delta update: %1 to download (%2 files changed, %3 unchanged, %4 removed) instead of %5")
+                                         .arg(StringUtils::humanReadableFileSize(static_cast<double>(plan.downloadCompressedBytes)))
+                                         .arg(plan.entriesToDownload.size())
+                                         .arg(plan.skippedCount)
+                                         .arg(plan.pathsToRemove.size())
+                                         .arg(StringUtils::humanReadableFileSize(static_cast<double>(plan.totalRemoteZipBytes)));
+        }
+        delete planTask;
+        if (!guard || userAborted) {
+            return false;
+        }
+    }
+
     if (!askConfirmUpdateDialog(guard, candidate, parent) || !guard) {
         return false;
     }
@@ -278,6 +401,9 @@ bool runOneStepUpdate(BaseInstance* inst, QWidget* parent)
 
     if (candidate.isHaloPack && candidate.haloVersion.hasDeltaManifest) {
         return executeHaloDeltaSync(guard, candidate.haloVersion, parent);
+    }
+    if (candidate.hasZipDeltaPlan) {
+        return executeZipDeltaSync(guard, candidate.zipDeltaPlan, candidate.downloadUrl, candidate.versionName, parent);
     }
     return runImportUpdate(guard, candidate.downloadUrl, candidate.versionId, candidate.versionName, parent);
 }
