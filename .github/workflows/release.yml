@@ -1,9 +1,12 @@
 name: Build Application and Make Release
 
 on:
-  push:
-    tags:
-      - "*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v2.1.2)"
+        required: true
+        type: string
 
 permissions: {}
 
@@ -40,7 +43,10 @@ jobs:
         uses: actions/download-artifact@v8
       - name: Grab and store version
         run: |
-          tag_name=$(echo ${{ github.ref }} | grep -oE "[^/]+$")
+          tag_name="${{ inputs.tag }}"
+          if [ -z "$tag_name" ]; then
+            tag_name=$(echo "${{ github.ref }}" | grep -oE "[^/]+$")
+          fi
           echo "VERSION=$tag_name" >> $GITHUB_ENV
       - name: Package artifacts properly
         run: |
@@ -61,7 +67,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ env.VERSION }}
           name: Halo Launcher ${{ env.VERSION }}
           body_path: .github/RELEASE_NOTES.md
           draft: false
